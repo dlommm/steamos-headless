@@ -5,7 +5,9 @@
 #   steamos-session            Gaming Mode ("Steam Big Picture" in Moonlight)
 #   steamos-session desktop    Desktop Mode ("Desktop" in Moonlight)
 # Gaming Mode restarts only if the resolution changed, so reconnecting from
-# the same device is instant.
+# the same device is instant. The mode is also kept in the home volume, so
+# the next container start boots Gaming Mode at it and the first connection
+# doesn't restart Steam either.
 set -uo pipefail
 
 W=${SUNSHINE_CLIENT_WIDTH:-1920}
@@ -18,6 +20,8 @@ mkdir -p "$state"
 
 swaymsg -q -- output HEADLESS-1 mode --custom "${W}x${H}@${R}Hz"
 echo "$mode" > "$state/mode"
+saved=/home/deck/.config/steamos-docker/client-mode
+[[ "$(cat "$saved" 2>/dev/null)" == "$mode" ]] || { mkdir -p "${saved%/*}" && echo "$mode" > "$saved"; }
 
 want=gamescope
 [[ "${1:-}" == desktop ]] && want=plasma

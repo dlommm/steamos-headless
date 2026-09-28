@@ -80,7 +80,7 @@ Use the `steamos-3.8` tag to stay on a specific series.
 | `SSH_PORT` | `2222` | SSH port inside the container |
 | `RENDER_NODE` | auto | Force a device, e.g. `/dev/dri/renderD129` |
 | `WLR_RENDERER` | `gles2` on NVIDIA | sway renderer for the headless display (`gles2`, `vulkan`, `pixman`) |
-| `STEAMOS_RESOLUTION` / `STEAMOS_REFRESH` | `1920x1080` / `60` | Size at boot, before any client connects |
+| `STEAMOS_RESOLUTION` / `STEAMOS_REFRESH` | `1920x1080` / `60` | Size at the very first boot; after that the container starts at the last client's size |
 | `SUNSHINE_USER` / `SUNSHINE_PASS` | `admin` / empty | Sets the web UI login at start if a password is given |
 | `STEAM_ARGS` | Valve's `steam-launcher` | Run Steam with these arguments instead of Valve's (`-steamos3 -steampal -steamdeck -gamepadui`) |
 | `MDNS_INTERFACE` | default route | Network interface for Moonlight auto-discovery (Unraid's `shim-br0` is mapped to `br0`) |
@@ -189,7 +189,9 @@ At start the container:
 5. Starts Sunshine with the matching encoder: NVENC on NVIDIA, VA-API on AMD.
 
 When a client launches **Steam Big Picture**, the display is resized to that client. Steam is
-only restarted if the resolution changed, so reconnecting from the same device is instant.
+only restarted if the resolution changed, so reconnecting from the same device is instant. The
+container remembers the last client's resolution and boots Gaming Mode at it, so the first
+connection after a restart doesn't restart Steam either.
 
 ### Gaming Mode and Desktop Mode
 

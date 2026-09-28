@@ -27,9 +27,14 @@ next_session() {
     [[ "$s" == plasma ]] && echo plasma || echo gamescope
 }
 
-# Moonlight's resolution, set by steamos-session when a client connects.
+# Moonlight's resolution, set by steamos-session when a client connects;
+# before that, the last client's (kept across container starts), else the
+# configured start size.
 current_mode() {
-    cat "$state/mode" 2>/dev/null || echo "${STEAMOS_RESOLUTION:-1920x1080}@${STEAMOS_REFRESH:-60}"
+    local m
+    m=$(cat "$state/mode" 2>/dev/null || cat /home/deck/.config/steamos-docker/client-mode 2>/dev/null)
+    [[ "$m" =~ ^[0-9]+x[0-9]+@[0-9]+$ ]] || m="${STEAMOS_RESOLUTION:-1920x1080}@${STEAMOS_REFRESH:-60}"
+    echo "$m"
 }
 
 # Gaming Mode, the way SteamOS's systemd user units run it:
@@ -218,6 +223,9 @@ while true; do
 
     session=$(next_session)
     echo "$session" > "$state/current"
+    # sway's output is the picture Sunshine streams; size it like the session.
+    IFS='x@' read -r W H R <<<"$(current_mode)"
+    swaymsg -q -- output HEADLESS-1 mode --custom "${W}x${H}@${R}Hz" 2>/dev/null || true
     note "starting $session"
     started=$SECONDS
     case "$session" in
