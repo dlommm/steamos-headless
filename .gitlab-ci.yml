@@ -12,6 +12,8 @@ stages: [build]
 
 .build:
   stage: build
+  # win-runner also picks up untagged jobs; keep builds on the Linux runner.
+  tags: [Linux]
   image: docker:28
   services:
     - name: docker:28-dind
