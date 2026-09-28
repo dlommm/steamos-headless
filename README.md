@@ -75,9 +75,15 @@ Use the `steamos-3.8` tag to stay on a specific series.
 | `STEAM_ARGS` | `-gamepadui -steamos3` | Add `-steamdeck` to make games treat it as a Deck |
 | `MDNS_INTERFACE` | default route | Network interface for Moonlight auto-discovery |
 | `AVAHI` | `1` | `0` disables auto-discovery (add the host by IP in Moonlight) |
+| `STEAM_LIBRARIES` | `/games` | Colon-separated folders registered as Steam libraries (skipped if not mounted) |
 
-`/home/deck` holds the Steam library, Steam login, and Sunshine config and pairings. Put it on
-a fast SSD/NVMe.
+## Storage
+
+`/home/deck` holds the Steam client, login, settings and Sunshine pairings. Put it on NVMe/SSD.
+Mount a big drive at `/games` and it's **added to Steam as a library automatically**, so the
+OS can live on NVMe and games on HDD. **Updates never wipe data**: pulling a new image keeps
+both folders. See [docs/storage.md](docs/storage.md) for multiple drives, reusing an existing
+library, and per-platform paths.
 
 ## How it works
 

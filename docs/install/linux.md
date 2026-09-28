@@ -54,7 +54,8 @@ sudo udevadm control --reload && sudo udevadm trigger
 ```bash
 mkdir -p ~/steamos && cd ~/steamos
 curl -fsSLO https://gitlab.ohhcloud.com/dlomm/arch-steam-headless/-/raw/main/deploy/compose.yaml
-# edit the two paths marked CHANGE ME (a fast SSD/NVMe for the Steam library)
+# edit the paths marked CHANGE ME: Steam home on NVMe/SSD, optionally games on an HDD
+# (see ../storage.md)
 docker compose up -d
 docker compose logs -f     # shows detected GPU, CPU threads and RAM
 ```

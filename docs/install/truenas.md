@@ -37,8 +37,10 @@ Run the same command once in System → Shell (or reboot).
 
 Datasets → Add Dataset under your pool (ideally an SSD pool for game load times):
 
-- `apps/steamos/home`: Steam library, login and Sunshine config
+- `apps/steamos/home`: Steam client, login, settings and Sunshine pairings (and games, unless you add a games dataset)
 - `apps/steamos/nvidia-cache`: NVIDIA driver cache
+- Optional, on an HDD pool: a `games` dataset for the game library. Uncomment the `/games` line
+  in the YAML. See [storage](../storage.md).
 
 ## 4. Install the app
 

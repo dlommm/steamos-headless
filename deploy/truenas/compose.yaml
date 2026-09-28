@@ -3,6 +3,7 @@
 # Create the datasets first (Datasets > Add Dataset):
 #   tank/apps/steamos/home          Steam library + config
 #   tank/apps/steamos/nvidia-cache  NVIDIA driver cache
+#   (optional) a games dataset on an HDD pool, mounted at /games
 # Full steps: docs/install/truenas.md
 
 services:
@@ -27,4 +28,6 @@ services:
       - /dev/input:/dev/input
       - /run/udev:/run/udev:ro
       - /mnt/tank/apps/steamos/home:/home/deck
+      # Optional: game library on an HDD pool, added to Steam automatically.
+      # - /mnt/hddpool/games:/games
       - /mnt/tank/apps/steamos/nvidia-cache:/var/cache/nvidia

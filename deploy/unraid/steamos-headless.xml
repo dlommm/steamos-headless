@@ -20,7 +20,8 @@
   <Icon>https://raw.githubusercontent.com/LizardByte/Sunshine/master/sunshine.png</Icon>
   <ExtraParams>--ipc=host --ulimit nofile=524288:524288 --ulimit memlock=-1:-1</ExtraParams>
   <PostArgs/>
-  <Config Name="Steam home" Target="/home/deck" Default="/mnt/cache/appdata/steamos" Mode="rw" Description="Steam library, login and Sunshine config. Use a pool/cache path (not /mnt/user) for game performance." Type="Path" Display="always" Required="true" Mask="false">/mnt/cache/appdata/steamos</Config>
+  <Config Name="Steam home" Target="/home/deck" Default="/mnt/cache/appdata/steamos" Mode="rw" Description="Steam client, login, settings and Sunshine pairings (and games, unless Games library is set). Use a pool/cache path, not /mnt/user." Type="Path" Display="always" Required="true" Mask="false">/mnt/cache/appdata/steamos</Config>
+  <Config Name="Games library (optional)" Target="/games" Default="/mnt/user/games" Mode="rw" Description="Optional game library on the array/HDD. It's added to Steam automatically (Settings > Storage). Leave empty to keep games in Steam home." Type="Path" Display="always" Required="false" Mask="false"/>
   <Config Name="NVIDIA driver cache" Target="/var/cache/nvidia" Default="/mnt/cache/appdata/steamos-nvidia-cache" Mode="rw" Description="Cached NVIDIA userspace driver (unused on AMD)." Type="Path" Display="advanced" Required="false" Mask="false">/mnt/cache/appdata/steamos-nvidia-cache</Config>
   <Config Name="Input devices" Target="/dev/input" Default="/dev/input" Mode="rw" Description="Needed for Moonlight controllers, keyboard and mouse." Type="Path" Display="advanced" Required="true" Mask="false">/dev/input</Config>
   <Config Name="udev database" Target="/run/udev" Default="/run/udev" Mode="ro" Description="Lets the container see Sunshine's virtual input devices." Type="Path" Display="advanced" Required="true" Mask="false">/run/udev</Config>

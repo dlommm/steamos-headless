@@ -165,6 +165,16 @@ done
 export WAYLAND_DISPLAY=wayland-1
 log "sway is up on ${WAYLAND_DISPLAY}"
 
+# Extra Steam libraries (e.g. an HDD at /games). Only the top-level folder is
+# handed to deck; existing game files are never chowned recursively.
+IFS=: read -r -a steam_libs <<<"${STEAM_LIBRARIES:-/games}"
+for lib in "${steam_libs[@]}"; do
+    [[ -n "$lib" && -d "$lib" ]] || continue
+    sudo -u deck test -w "$lib" || chown deck:deck "$lib"
+    log "Steam library: $lib ($(df -h --output=avail "$lib" | tail -1 | tr -d ' ') free)"
+done
+as_deck /usr/local/bin/steam-libraries || log "WARNING: could not register Steam libraries"
+
 # Steam starts right away (like a console) so it can update and log in before
 # anyone connects; Sunshine re-launches it at the client's resolution.
 IFS=x read -r W H <<<"${STEAMOS_RESOLUTION}"

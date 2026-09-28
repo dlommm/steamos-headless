@@ -1,0 +1,68 @@
+#!/bin/bash
+# Registers extra Steam library folders (e.g. an HDD mounted at /games) in
+# Steam's libraryfolders.vdf so they show up under Settings > Storage without
+# clicking through Steam. Runs as deck before Steam starts; Steam only reads
+# the file at startup. Existing entries are never changed or removed.
+#
+# STEAM_LIBRARIES: colon-separated paths, default /games. Paths that don't
+# exist (not mounted) are skipped.
+set -euo pipefail
+
+steam_root=/home/deck/.local/share/Steam
+vdf=$steam_root/steamapps/libraryfolders.vdf
+
+log() { echo "[steam-libraries] $*"; }
+
+libs=()
+IFS=: read -r -a candidates <<<"${STEAM_LIBRARIES:-/games}"
+for lib in "${candidates[@]}"; do
+    [[ -n "$lib" && -d "$lib" ]] || continue
+    if [[ ! -w "$lib" ]]; then
+        log "WARNING: $lib is not writable by deck (uid $(id -u)); skipping"
+        continue
+    fi
+    # Steam expects a steamapps dir and a libraryfolder.vdf marker in each library.
+    mkdir -p "$lib/steamapps"
+    if [[ ! -e "$lib/libraryfolder.vdf" ]]; then
+        printf '"libraryfolder"\n{\n\t"contentid"\t\t"%s"\n\t"label"\t\t""\n}\n' \
+            "$(od -An -N8 -tu8 /dev/urandom | tr -d ' ')" > "$lib/libraryfolder.vdf"
+    fi
+    libs+=("$lib")
+done
+[[ ${#libs[@]} -gt 0 ]] || exit 0
+
+entry() {  # index path
+    printf '\t"%s"\n\t{\n\t\t"path"\t\t"%s"\n\t\t"label"\t\t""\n\t\t"contentid"\t\t""\n\t\t"totalsize"\t\t"0"\n\t\t"update_clean_bytes_tally"\t\t"0"\n\t\t"time_last_update_verified"\t\t"0"\n\t\t"apps"\n\t\t{\n\t\t}\n\t}\n' "$1" "$2"
+}
+
+mkdir -p "$(dirname "$vdf")"
+if [[ ! -s "$vdf" ]]; then
+    # First boot: Steam hasn't created the file yet. Start it with the default
+    # library (Steam's own dir) so Steam keeps installing itself there.
+    { echo '"libraryfolders"'; echo '{'; entry 0 "$steam_root"; echo '}'; } > "$vdf"
+fi
+
+for lib in "${libs[@]}"; do
+    if grep -qP "^\t\t\"path\"\t\t\"\Q${lib}\E\"\$" "$vdf"; then
+        continue
+    fi
+    # Next free top-level index = highest existing "<n>" key + 1.
+    next=$(awk -F'"' '/^\t"[0-9]+"$/ {if ($2+1 > n) n = $2+1} END {print n+0}' "$vdf")
+    tmp=$(mktemp)
+    # Insert the new entry before the file's final closing brace.
+    awk -v block="$(entry "$next" "$lib")" '
+        { lines[NR] = $0 }
+        END {
+            last = NR; while (last > 0 && lines[last] !~ /^}/) last--
+            for (i = 1; i < last; i++) print lines[i]
+            print block
+            for (i = last; i <= NR; i++) print lines[i]
+        }' "$vdf" > "$tmp"
+    mv "$tmp" "$vdf"
+    log "registered Steam library $lib"
+done
+
+# Newer Steam clients keep a copy in config/; keep it identical so neither wins.
+if [[ -d "$steam_root/config" ]]; then
+    cp "$vdf" "$steam_root/config/libraryfolders.vdf"
+fi

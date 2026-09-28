@@ -110,7 +110,8 @@ ENV XDG_RUNTIME_DIR=/run/user/1000 \
     STEAM_ARGS="-gamepadui -steamos3" \
     SUNSHINE_USER=admin \
     SUNSHINE_PASS="" \
-    GPU_VENDOR=auto
+    GPU_VENDOR=auto \
+    STEAM_LIBRARIES=/games
 
 VOLUME ["/home/deck"]
 ENTRYPOINT ["/usr/local/bin/entrypoint"]

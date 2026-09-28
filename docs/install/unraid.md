@@ -53,8 +53,11 @@ Apps → install **Docker Compose Manager** → Docker → Add New Stack → pas
 
 ## Storage
 
-Put the Steam home on a **pool/cache path** (`/mnt/cache/...` or `/mnt/<pool>/...`), not
-`/mnt/user/...`. The user-share FUSE layer slows down game loading and shader caching a lot.
+- **Steam home:** a **pool/cache path** (`/mnt/cache/appdata/steamos`), not `/mnt/user/...`.
+  The user-share FUSE layer is slow for the Steam client and shader caches.
+- **Games library (optional):** set it to a share on the array, e.g. `/mnt/user/games` (share
+  primary storage: Array). It's added to Steam automatically. In Steam → Settings → Storage,
+  make it the default. See [storage](../storage.md).
 
 ## Updating
 
