@@ -37,7 +37,10 @@ sudo reboot
 cat /sys/module/nvidia_drm/parameters/modeset   # must print Y
 ```
 
-The NVIDIA Container Toolkit is **not** needed.
+The NVIDIA Container Toolkit is **not** needed, and `--runtime=nvidia`,
+`NVIDIA_VISIBLE_DEVICES` and `NVIDIA_DRIVER_CAPABILITIES` should be left out. The container
+gets the GPU through privileged mode and installs the matching driver itself, including the
+32-bit libraries Steam needs, which the toolkit doesn't provide.
 
 ## 3. Input permissions (once)
 

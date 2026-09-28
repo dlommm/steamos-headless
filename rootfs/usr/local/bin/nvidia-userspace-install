@@ -19,6 +19,19 @@ if [[ -e "$marker" ]]; then
     exit 0
 fi
 
+# --runtime=nvidia / NVIDIA_VISIBLE_DEVICES (NVIDIA Container Toolkit) bind-mounts
+# the host's 64-bit driver libraries read-only, so the installer can't write
+# over them. Use what the toolkit provides instead of failing.
+if grep -q 'libnvidia-' /proc/self/mountinfo; then
+    echo "[nvidia] NVIDIA Container Toolkit detected (--runtime=nvidia / NVIDIA_VISIBLE_DEVICES):"
+    echo "[nvidia]   using its host libraries; skipping the driver install."
+    echo "[nvidia] WARNING: the toolkit provides no 32-bit libraries, so the Steam client and"
+    echo "[nvidia]   32-bit games may fail. Remove --runtime=nvidia, NVIDIA_VISIBLE_DEVICES and"
+    echo "[nvidia]   NVIDIA_DRIVER_CAPABILITIES; this image installs the full driver itself."
+    ldconfig 2>/dev/null || true
+    exit 0
+fi
+
 cache=/var/cache/nvidia
 run="$cache/NVIDIA-Linux-x86_64-$ver.run"
 mkdir -p "$cache"

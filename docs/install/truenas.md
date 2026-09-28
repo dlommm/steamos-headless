@@ -13,6 +13,9 @@ midclt call system.advanced.update '{"kernel_extra_options": "nvidia-drm.modeset
 
 Reboot, then check `cat /sys/module/nvidia_drm/parameters/modeset` prints `Y`.
 
+Don't set `NVIDIA_VISIBLE_DEVICES` or add GPU resources for this app in the YAML. The
+container gets the GPU through privileged mode and installs the matching driver itself.
+
 **AMD:** nothing to install. TrueNAS includes the `amdgpu` driver.
 
 Don't assign the GPU to a VM (or to another app that isolates it); the container needs it on

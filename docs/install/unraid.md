@@ -14,6 +14,11 @@ echo 'options nvidia-drm modeset=1' > /boot/config/modprobe.d/nvidia-drm.conf
 
 Reboot, then check `cat /sys/module/nvidia_drm/parameters/modeset` prints `Y`.
 
+> **Don't add** `--runtime=nvidia`, `NVIDIA_VISIBLE_DEVICES` or `NVIDIA_DRIVER_CAPABILITIES`,
+> even though the Nvidia Driver plugin's instructions say to for other containers. This
+> container gets the GPU through privileged mode and installs the full driver (including the
+> 32-bit libraries Steam needs) matching the plugin's version by itself.
+
 **AMD:** Apps → install **Radeon TOP** (by ich777), which loads the `amdgpu` driver at boot.
 Check with `ls /dev/dri/renderD*`.
 
