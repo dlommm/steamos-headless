@@ -1,0 +1,5 @@
+#!/bin/bash
+# SteamOS helper (steamos-priv-write) for settings that belong to the host, not a
+# container (hostname, backlight/CPU/GPU tuning, Wi-Fi power saving). Reports
+# success without changing anything.
+exit 0

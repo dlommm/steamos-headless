@@ -2,6 +2,7 @@
 #   - pushes $CI_REGISTRY_IMAGE:latest
 #            $CI_REGISTRY_IMAGE:<version>        e.g. 2026.09.28.3 (date.pipeline)
 #            $CI_REGISTRY_IMAGE:steamos-<x.y>    newest build for that SteamOS release
+#   Other branches push only $CI_REGISTRY_IMAGE:branch-<name>, for testing.
 #   - creates a GitLab Release <version> listing the SteamOS/Sunshine/Steam/
 #     gamescope/Mesa versions inside the image
 #
@@ -77,7 +78,9 @@ build:
           docker push "$CI_REGISTRY_IMAGE:$tag"
         done
       else
-        echo "Not the default branch: built only, nothing pushed."
+        # Test builds: only a branch-<name> tag, never latest or a release.
+        docker tag "$CI_REGISTRY_IMAGE:$VERSION" "$CI_REGISTRY_IMAGE:branch-$CI_COMMIT_REF_SLUG"
+        docker push "$CI_REGISTRY_IMAGE:branch-$CI_COMMIT_REF_SLUG"
       fi
   artifacts:
     paths: [release.txt, release-notes.md]

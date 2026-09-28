@@ -1,0 +1,9 @@
+#!/bin/bash
+# Steam's Settings > System > Time Zone. Applies it to the container and saves
+# it in deck's home so it survives recreating the container.
+set -euo pipefail
+tz=${1:?usage: steamos-set-timezone <Area/City>}
+[[ "$tz" != *..* && -f "/usr/share/zoneinfo/$tz" ]] || { echo "unknown time zone: $tz" >&2; exit 1; }
+sudo -n ln -sf "/usr/share/zoneinfo/$tz" /etc/localtime
+mkdir -p /home/deck/.config/steamos-docker
+echo "$tz" > /home/deck/.config/steamos-docker/timezone

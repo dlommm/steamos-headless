@@ -17,6 +17,15 @@ if [[ ! -e "$cfg/sunshine.conf" ]]; then
 fi
 
 [[ -e "$cfg/apps.json" ]] || cp /etc/steamos-docker/apps.json "$cfg/apps.json"
+# Older images shipped "Desktop" without a command (it just showed the screen).
+# It now opens Desktop Mode; update that entry only if it's still untouched.
+if jq -e '.apps[] | select(.name == "Desktop" and (has("cmd") | not) and (has("prep-cmd") | not))' \
+        "$cfg/apps.json" >/dev/null 2>&1; then
+    jq '(.apps[] | select(.name == "Desktop" and (has("cmd") | not))) += {
+            "cmd": "/usr/local/bin/steamos-session desktop",
+            "auto-detach": "true", "wait-all": "false", "exit-timeout": "5"}' \
+        "$cfg/apps.json" > "$cfg/apps.json.new" && mv "$cfg/apps.json.new" "$cfg/apps.json"
+fi
 
 if [[ -n "${SUNSHINE_PASS:-}" ]]; then
     sunshine "$cfg/sunshine.conf" --creds "${SUNSHINE_USER:-admin}" "$SUNSHINE_PASS" >/dev/null 2>&1 || true

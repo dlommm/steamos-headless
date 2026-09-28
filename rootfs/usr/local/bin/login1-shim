@@ -1,0 +1,126 @@
+#!/usr/bin/env python3
+"""A minimal org.freedesktop.login1 for the container.
+
+Steam's power menu calls logind over the system bus (dbus-send ...
+org.freedesktop.login1.Manager.Reboot/PowerOff/Suspend), and so does Plasma's
+logout dialog. There's no systemd-logind in a container, so this answers
+those calls in container terms:
+  Reboot     restart the session (Gaming or Desktop Mode)
+  PowerOff   stop it until the next Moonlight connection
+  Suspend    signal sleep and resume at once: nothing is stopped, so a
+             running game survives, but Steam's sleep flow completes
+The container itself keeps running either way.
+"""
+import os
+import subprocess
+import sys
+
+import dbus
+import dbus.service
+from dbus.mainloop.glib import DBusGMainLoop
+from gi.repository import GLib
+
+BUS_NAME = "org.freedesktop.login1"
+PATH = "/org/freedesktop/login1"
+IFACE = "org.freedesktop.login1.Manager"
+
+
+def log(msg):
+    print(f"[login1] {msg}", flush=True)
+
+
+def session_select(arg):
+    # steamos-session-select switches to deck itself when run as root.
+    subprocess.Popen(["/usr/bin/steamos-session-select", arg],
+                     stdin=subprocess.DEVNULL, start_new_session=True)
+
+
+class Manager(dbus.service.Object):
+    def __init__(self, bus):
+        super().__init__(bus, PATH)
+        self.inhibitors = []
+
+    # --- actions ---------------------------------------------------------
+    @dbus.service.method(IFACE, in_signature="b")
+    def Reboot(self, interactive):
+        log("Reboot: restarting the session")
+        session_select("--restart")
+
+    @dbus.service.method(IFACE, in_signature="b")
+    def PowerOff(self, interactive):
+        log("PowerOff: stopping the session until the next Moonlight connection")
+        session_select("--off")
+
+    @dbus.service.method(IFACE, in_signature="b")
+    def Suspend(self, interactive):
+        log("Suspend: signalling sleep and resume (nothing is stopped)")
+        self.PrepareForSleep(True)
+        GLib.timeout_add(1500, lambda: (self.PrepareForSleep(False), False)[1])
+
+    @dbus.service.method(IFACE, in_signature="bt")
+    def RebootWithFlags(self, interactive, flags):
+        self.Reboot(interactive)
+
+    @dbus.service.method(IFACE, in_signature="t")
+    def PowerOffWithFlags(self, flags):
+        self.PowerOff(False)
+
+    # --- capability queries ----------------------------------------------
+    @dbus.service.method(IFACE, out_signature="s")
+    def CanReboot(self):
+        return "yes"
+
+    @dbus.service.method(IFACE, out_signature="s")
+    def CanPowerOff(self):
+        return "yes"
+
+    @dbus.service.method(IFACE, out_signature="s")
+    def CanSuspend(self):
+        return "yes"
+
+    @dbus.service.method(IFACE, out_signature="s")
+    def CanHibernate(self):
+        return "na"
+
+    @dbus.service.method(IFACE, out_signature="s")
+    def CanHybridSleep(self):
+        return "na"
+
+    @dbus.service.method(IFACE, out_signature="s")
+    def CanSuspendThenHibernate(self):
+        return "na"
+
+    @dbus.service.method(IFACE, out_signature="s")
+    def CanRebootToFirmwareSetup(self):
+        return "na"
+
+    # Inhibitor locks: hand out a pipe end; nothing here ever sleeps for real.
+    @dbus.service.method(IFACE, in_signature="ssss", out_signature="h")
+    def Inhibit(self, what, who, why, mode):
+        r, w = os.pipe()
+        self.inhibitors.append(w)
+        return dbus.types.UnixFd(r)
+
+    @dbus.service.signal(IFACE, signature="b")
+    def PrepareForSleep(self, start):
+        pass
+
+    @dbus.service.signal(IFACE, signature="b")
+    def PrepareForShutdown(self, start):
+        pass
+
+
+def main():
+    DBusGMainLoop(set_as_default=True)
+    bus = dbus.SystemBus()
+    if bus.name_has_owner(BUS_NAME):
+        log("a login1 service already exists; not starting")
+        return 0
+    name = dbus.service.BusName(BUS_NAME, bus)  # noqa: F841 (keeps the name)
+    Manager(bus)
+    log("answering Steam's power menu (Restart, Shut Down, Sleep)")
+    GLib.MainLoop().run()
+
+
+if __name__ == "__main__":
+    sys.exit(main())

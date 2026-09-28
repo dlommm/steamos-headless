@@ -101,7 +101,8 @@ library, and per-platform paths.
 
 ```
 Moonlight ──► Sunshine ──(wlr-screencopy)──► sway (headless output, resized per client)
-                 │                               └── gamescope ── Steam -gamepadui -steamos3
+                 │                               ├── Gaming Mode: gamescope ── Steam -gamepadui -steamos3
+                 │                               └── Desktop Mode: KDE Plasma (SteamOS's) + Steam
                  └──(uinput)──► virtual pad/kbd/mouse ──► libinput (sway) + Steam
 ```
 
@@ -111,11 +112,25 @@ At start the container:
 2. Detects the GPU. On NVIDIA it installs the userspace driver matching the host kernel module
    (including the 32-bit libraries Steam needs), cached in `/var/cache/nvidia`.
 3. Starts D-Bus, Avahi (Moonlight discovery), PipeWire, and sway on a headless output.
-4. Starts Steam in gamescope right away, so updates and login happen before anyone connects.
+4. Starts the session manager, which runs Gaming Mode right away, so updates and login happen
+   before anyone connects.
 5. Starts Sunshine with the matching encoder: NVENC on NVIDIA, VA-API on AMD.
 
 When a client launches **Steam Big Picture**, the display is resized to that client. Steam is
 only restarted if the resolution changed, so reconnecting from the same device is instant.
+
+### Gaming Mode and Desktop Mode
+
+Like a Deck, the container runs one session at a time, and a session manager keeps it running:
+
+- **Switch to Desktop** in Steam's power menu opens SteamOS's KDE Plasma desktop, with the Steam
+  desktop client. **Return to Gaming Mode** on the desktop goes back. In Moonlight, the
+  **Desktop** app opens Desktop Mode and **Steam Big Picture** opens Gaming Mode.
+- If Steam quits, restarts itself (after setup or an update) or crashes, the session comes back.
+- **Restart** restarts the session, and **Shut Down** stops it until the next Moonlight
+  connection. The container keeps running.
+- Steam's system update, BIOS, dock and firmware checks report "up to date": the OS here is the
+  image, updated by pulling a newer one.
 
 **Why not Bazzite, the Deck recovery image, or Apollo?** A container uses the host's kernel.
 Bazzite images and the recovery image are whole bootable OSes (kernel, firmware, updater).
@@ -144,6 +159,6 @@ receive them. It's intended for dedicated or headless hosts.
 ## Limitations
 
 - Headless only. No output to a monitor attached to the host.
-- SteamOS system features do nothing in a container: OS updates, the power menu, switch to
-  desktop, and Deck hardware controls. The OS is updated by pulling a newer image.
+- Deck hardware controls (fan, TDP, brightness, battery) don't apply. OS updates come from
+  newer images, not Steam's updater.
 - Games whose anti-cheat blocks Linux/Proton won't work, same as on a Steam Deck.

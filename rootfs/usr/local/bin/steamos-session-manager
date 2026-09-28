@@ -1,0 +1,140 @@
+#!/bin/bash
+# The container's session manager, standing in for SteamOS's (SDDM + the
+# gamescope/plasma sessions). Runs as deck on the sway display and keeps
+# exactly one session going:
+#   gamescope  Gaming Mode: Steam Big Picture in gamescope (the default)
+#   plasma     Desktop Mode: KDE Plasma with the Steam desktop client
+# When a session ends it starts the next one: whatever steamos-session-select
+# asked for, else the persistent choice, else Gaming Mode. So "Switch to
+# Desktop", "Return to Gaming Mode", Steam's Restart and a Steam that quits or
+# crashes all come back on screen, like on a Deck.
+set -uo pipefail
+
+state=/run/user/1000/steamos-session
+persist=/home/deck/.config/steamos-docker/session
+log=/home/deck/.local/state/steamos-session.log
+mkdir -p "$state" "$(dirname "$persist")" "$(dirname "$log")"
+export WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-wayland-1}
+
+note() { echo "[session] $*" | tee -a "$log"; }
+
+next_session() {
+    local s
+    s=$(cat "$state/next" 2>/dev/null || cat "$persist" 2>/dev/null || true)
+    rm -f "$state/next"
+    [[ "$s" == plasma ]] && echo plasma || echo gamescope
+}
+
+# Moonlight's resolution, set by steamos-session when a client connects.
+current_mode() {
+    cat "$state/mode" 2>/dev/null || echo "${STEAMOS_RESOLUTION:-1920x1080}@${STEAMOS_REFRESH:-60}"
+}
+
+run_gamescope() {
+    local mode W H R
+    mode=$(current_mode)
+    IFS='x@' read -r W H R <<<"$mode"
+    echo "$mode" > "$state/running-mode"
+    # shellcheck disable=SC2086
+    gamescope -e -f -W "$W" -H "$H" -w "$W" -h "$H" -r "$R" --xwayland-count 2 \
+        -- steam ${STEAM_ARGS:--gamepadui -steamos3} >>"$log" 2>&1 </dev/null
+}
+
+# Desktop Mode: SteamOS's Plasma (steamdeck-kde-presets supplies the look,
+# Steam's autostart and the Return to Gaming Mode icon, which logs out, and
+# logging out brings Gaming Mode back). Nested in sway the way Valve's own
+# holo-nested-desktop nests it: its own runtime dir sharing only the audio
+# sockets, and kwin fullscreen without a lock screen.
+run_plasma() {
+    local rt=/run/user/1000 prt icons=/home/deck/.local/share/icons/hicolor/scalable/actions
+    # A new user on SteamOS gets these from /etc/skel; this home predates it.
+    if [[ -r /etc/skel/Desktop/Return.desktop && ! -e /home/deck/Desktop/Return.desktop ]]; then
+        mkdir -p /home/deck/Desktop
+        install -m755 /etc/skel/Desktop/Return.desktop /home/deck/Desktop/Return.desktop
+    fi
+    if [[ -e /usr/share/icons/hicolor/scalable/actions/steamdeck-gaming-return.svg ]]; then
+        mkdir -p "$icons"
+        ln -sf /usr/share/icons/hicolor/scalable/actions/steamdeck-gaming-return.svg "$icons/gaming-return.svg"
+    fi
+
+    prt=$(mktemp -d "$rt/plasma.XXXXXXXX")
+    mkdir -m700 "$prt/pulse" "$prt/bin"
+    ln -s "$rt/pulse/native" "$prt/pulse/native"
+    ln -s "$rt"/pipewire* "$prt/"
+    printf '#!/bin/sh\nexec /usr/bin/kwin_wayland_wrapper --fullscreen true --no-lockscreen "$@"\n' \
+        > "$prt/bin/kwin_wayland_wrapper"
+    chmod 755 "$prt/bin/kwin_wayland_wrapper"
+
+    # The session bus address lets steamos-session-select log out cleanly.
+    env -u LD_PRELOAD PATH="$prt/bin:$PATH" XDG_RUNTIME_DIR="$prt" \
+        WAYLAND_DISPLAY="$rt/$WAYLAND_DISPLAY" XDG_SESSION_TYPE=wayland \
+        dbus-run-session -- sh -c 'echo "$DBUS_SESSION_BUS_ADDRESS" > "$1"; exec startplasma-wayland' \
+        sh "$state/plasma-bus" >>"$log" 2>&1 </dev/null
+    rm -f "$state/plasma-bus"
+    rm -rf --one-file-system "$prt"
+}
+
+# Ends the running session so the loop moves on. steamos-session-select asks
+# for this with SIGUSR1 instead of doing it itself: it's often called from
+# inside Steam, and gamescope's reaper would kill it along with Steam.
+end_session() {
+    case "$(cat "$state/current" 2>/dev/null)" in
+        plasma)
+            if [[ -r "$state/plasma-bus" ]]; then
+                DBUS_SESSION_BUS_ADDRESS=$(cat "$state/plasma-bus") \
+                    timeout 10 dbus-send --session --type=method_call --dest=org.kde.Shutdown \
+                    /Shutdown org.kde.Shutdown.logout 2>/dev/null || true
+                for _ in $(seq 20); do [[ -e "$state/plasma-bus" ]] || return 0; sleep 1; done
+            fi
+            # (-f: the process name is cut to 15 characters, "startplasma-way")
+            pkill -u deck -f '(^|/)startplasma-wayland' 2>/dev/null
+            pkill -u deck -x kwin_wayland 2>/dev/null
+            ;;
+        *)
+            # Let Steam exit cleanly first so settings and cloud saves stick.
+            if pgrep -u deck -x steam >/dev/null; then
+                timeout 30 steam -shutdown >/dev/null 2>&1 || true
+                for _ in $(seq 30); do pgrep -u deck -x steam >/dev/null || break; sleep 1; done
+            fi
+            pkill -u deck -x gamescope 2>/dev/null
+            ;;
+    esac
+    return 0
+}
+
+echo $$ > "$state/manager.pid"
+requested=0
+trap 'requested=1; end_session &' USR1
+trap 'note "stopping"; end_session; rm -f "$state/current" "$state/manager.pid"; exit 0' TERM INT
+
+quick=0
+while true; do
+    # Steam's "Shut Down": stay off until the next Moonlight connection.
+    while [[ -e "$state/off" ]]; do sleep 1; done
+
+    session=$(next_session)
+    echo "$session" > "$state/current"
+    note "starting $session"
+    started=$SECONDS
+    case "$session" in
+        plasma) run_plasma & ;;
+        *)      run_gamescope & ;;
+    esac
+    # wait returns early whenever a signal arrives; keep waiting for the session.
+    pid=$!
+    while kill -0 "$pid" 2>/dev/null; do wait "$pid"; done
+    note "$session ended after $((SECONDS - started))s"
+
+    # Don't spin if a session dies right away on its own (e.g. a broken
+    # driver); switches asked for through steamos-session-select don't count.
+    if (( requested )); then
+        quick=0
+    elif (( SECONDS - started < 15 )); then
+        quick=$((quick + 1))
+        (( quick >= 3 )) && { note "session keeps failing; waiting 30s"; sleep 30; }
+    else
+        quick=0
+    fi
+    requested=0
+    sleep 1
+done

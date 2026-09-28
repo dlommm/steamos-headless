@@ -1,37 +1,39 @@
 #!/bin/bash
-# Resize the headless display to the Moonlight client's resolution and make
-# sure Steam Big Picture (in gamescope) is running at that size.
-# Sunshine calls this with SUNSHINE_CLIENT_WIDTH/HEIGHT/FPS set. If Steam is
-# already running at that size it's left alone, so reconnecting from the same
-# device is instant.
+# Sunshine runs this when a Moonlight client starts an app, with
+# SUNSHINE_CLIENT_WIDTH/HEIGHT/FPS set. It sizes the display to the client and
+# makes sure the right session is up (steamos-session-manager runs it):
+#   steamos-session            Gaming Mode ("Steam Big Picture" in Moonlight)
+#   steamos-session desktop    Desktop Mode ("Desktop" in Moonlight)
+# Gaming Mode restarts only if the resolution changed, so reconnecting from
+# the same device is instant.
 set -uo pipefail
 
 W=${SUNSHINE_CLIENT_WIDTH:-1920}
 H=${SUNSHINE_CLIENT_HEIGHT:-1080}
 R=${SUNSHINE_CLIENT_FPS:-60}
 mode="${W}x${H}@${R}"
-state=/run/user/1000/steamos-session.mode
+state=/run/user/1000/steamos-session
 export WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-wayland-1}
+mkdir -p "$state"
 
 swaymsg -q -- output HEADLESS-1 mode --custom "${W}x${H}@${R}Hz"
+echo "$mode" > "$state/mode"
 
-if pgrep -u "$(id -u)" -x gamescope >/dev/null && [[ "$(cat "$state" 2>/dev/null)" == "$mode" ]]; then
+want=gamescope
+[[ "${1:-}" == desktop ]] && want=plasma
+current=$(cat "$state/current" 2>/dev/null)
+
+# Woken up after Steam's Shut Down: the manager starts the wanted session.
+if [[ -e "$state/off" ]]; then
+    echo "$want" > "$state/next"
+    rm -f "$state/off"
     exit 0
 fi
 
-if pgrep -u "$(id -u)" -x gamescope >/dev/null; then
-    # Ask Steam to exit cleanly first so it doesn't lose settings/cloud saves.
-    steam -shutdown >/dev/null 2>&1 || true
-    for _ in $(seq 30); do pgrep -u "$(id -u)" -x steam >/dev/null || break; sleep 1; done
-    pkill -u "$(id -u)" -x gamescope || true
-    sleep 1
+if [[ "$current" != "$want" ]]; then
+    exec steamos-session-select "$want"
 fi
-
-mkdir -p /home/deck/.local/state
-echo "$mode" > "$state"
-# shellcheck disable=SC2086
-setsid -f gamescope -e -f \
-    -W "$W" -H "$H" -w "$W" -h "$H" -r "$R" \
-    --xwayland-count 2 \
-    -- steam ${STEAM_ARGS:--gamepadui -steamos3} \
-    >>/home/deck/.local/state/steamos-session.log 2>&1 </dev/null
+if [[ "$want" == gamescope && "$(cat "$state/running-mode" 2>/dev/null)" != "$mode" ]]; then
+    exec steamos-session-select --restart
+fi
+exit 0

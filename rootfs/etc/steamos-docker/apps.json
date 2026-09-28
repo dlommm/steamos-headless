@@ -11,7 +11,11 @@
     },
     {
       "name": "Desktop",
-      "image-path": "desktop.png"
+      "image-path": "desktop.png",
+      "cmd": "/usr/local/bin/steamos-session desktop",
+      "auto-detach": "true",
+      "wait-all": "false",
+      "exit-timeout": "5"
     }
   ]
 }

@@ -1,0 +1,6 @@
+#!/bin/bash
+# SteamOS helper (steamos-reboot-other): formatting, trimming or resetting disks, or
+# rebooting into another OS. In a container these would act on the host's
+# drives, so they're refused.
+echo "steamos-reboot-other: not available in the SteamOS container" >&2
+exit 1

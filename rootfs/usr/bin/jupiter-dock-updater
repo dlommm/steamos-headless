@@ -1,0 +1,5 @@
+#!/bin/bash
+# Steam Deck firmware updater (jupiter-dock-updater). Steam checks it in Gaming Mode; a
+# container has no Deck hardware to update, so there's never an update.
+# Exit status 7 is SteamOS's "no update available".
+exit 7

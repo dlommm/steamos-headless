@@ -202,6 +202,17 @@ mkdir -p /run/dbus
 rm -f /run/dbus/pid
 dbus-daemon --system --fork
 
+# Steam's Restart / Shut Down / Sleep and Plasma's logout dialog call logind;
+# login1-shim answers in container terms (see there).
+/usr/local/bin/login1-shim &
+
+# Time zone chosen in Steam's settings (steamos-set-timezone), else TZ.
+saved_tz=$(cat /home/deck/.config/steamos-docker/timezone 2>/dev/null || true)
+tz=${saved_tz:-${TZ:-}}
+if [[ -n "$tz" && "$tz" != *..* && -f "/usr/share/zoneinfo/$tz" ]]; then
+    ln -sf "/usr/share/zoneinfo/$tz" /etc/localtime
+fi
+
 # NetworkManager, only to report the connection to Steam (see
 # /usr/lib/NetworkManager/conf.d/90-steamos-docker.conf); it changes nothing.
 # It sees just the default-route interface, which matters under host
@@ -375,13 +386,13 @@ start_sway() {
     export WAYLAND_DISPLAY=wayland-1
 }
 
-# Steam starts right away (like a console) so it can update and log in before
-# anyone connects; Sunshine re-launches it at the client's resolution.
+# The session manager starts Gaming Mode right away (like a console) so Steam
+# can update and log in before anyone connects, and keeps a session running:
+# Switch to Desktop, Return to Gaming Mode and Steam restarting all go
+# through it. Sunshine's apps resize it to the client (steamos-session).
 start_steam() {
-    IFS=x read -r W H <<<"${STEAMOS_RESOLUTION}"
-    SUNSHINE_CLIENT_WIDTH=$W SUNSHINE_CLIENT_HEIGHT=$H SUNSHINE_CLIENT_FPS=$STEAMOS_REFRESH \
-        as_deck /usr/local/bin/steamos-session \
-        || log "WARNING: initial Steam launch failed; see ~/.local/state/steamos-session.log"
+    as_deck /usr/local/bin/steamos-session-manager > >(tee -a /run/steamos/session.log) 2>&1 &
+    SESSION_PID=$!
 }
 
 start_sunshine() {
@@ -391,22 +402,26 @@ start_sunshine() {
     SUNSHINE_PID=$!
 }
 
-stop_stack() {
-    kill -TERM "$SUNSHINE_PID" 2>/dev/null || true
-    # Only ask a running Steam to quit: "steam -shutdown" would start one.
-    if pgrep -u deck -x steam >/dev/null; then
-        timeout 20 sudo -u deck -E -H steam -shutdown >/dev/null 2>&1 || true
-        for _ in $(seq 15); do pgrep -u deck -x steam >/dev/null || break; sleep 1; done
-    fi
+stop_session() {
+    # The manager (sudo's child) ends the session cleanly on TERM.
+    pkill -TERM -u deck -f steamos-session-manager 2>/dev/null || true
+    for _ in $(seq 40); do pgrep -u deck -x steam >/dev/null || pgrep -u deck -x gamescope >/dev/null \
+        || pgrep -u deck -x kwin_wayland >/dev/null || break; sleep 0.5; done
     pkill -u deck -x gamescope 2>/dev/null || true
     pkill -u deck -x steam 2>/dev/null || true
+    pkill -u deck -x kwin_wayland 2>/dev/null || true
+}
+
+stop_stack() {
+    kill -TERM "$SUNSHINE_PID" 2>/dev/null || true
+    stop_session
     kill -TERM "$SWAY_PID" 2>/dev/null || true
     for _ in $(seq 20); do
         kill -0 "$SUNSHINE_PID" 2>/dev/null || kill -0 "$SWAY_PID" 2>/dev/null || break
         sleep 0.5
     done
     kill -KILL "$SUNSHINE_PID" "$SWAY_PID" 2>/dev/null || true
-    rm -f /run/user/1000/steamos-session.mode
+    rm -rf /run/user/1000/steamos-session
 }
 
 # Sunshine test-encodes captured frames at startup. If sway can't import the
@@ -495,7 +510,8 @@ for i in "${!order[@]}"; do
 done
 log "Sunshine web UI: https://<host-ip>:47990"
 
-trap 'log "stopping"; kill -TERM $SUNSHINE_PID $SWAY_PID $PIPEWIRE_PID $SEATD_PID 2>/dev/null; exit 0' TERM INT
+# On docker stop, let Steam exit cleanly before the rest goes down.
+trap 'log "stopping"; stop_session; kill -TERM $SUNSHINE_PID $SWAY_PID $PIPEWIRE_PID $SEATD_PID 2>/dev/null; exit 0' TERM INT
 wait -n $SUNSHINE_PID $SWAY_PID $PIPEWIRE_PID $SEATD_PID
 log "a core service exited; stopping container"
 exit 1
