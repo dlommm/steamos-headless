@@ -21,7 +21,11 @@ services:
       SUNSHINE_USER: admin
       SUNSHINE_PASS: ""             # set to preconfigure the web UI login
       TZ: UTC
-      # PRELOAD_APPS: decky,emudeck,heroic   # optional Deck add-ons (README "Add-ons")
+      # Optional Deck add-ons; every option is in the README ("Add-ons"):
+      # PRELOAD_APPS: decky,heroic,protonup,xcloud
+      # PRELOAD_FLATPAKS: com.spotify.Client
+      # DECKY_PLUGINS: CSS Loader,SteamGridDB
+      # ADD_TO_STEAM: default                    # none, or names/app IDs to add to Steam
     volumes:
       - /dev/input:/dev/input
       - /run/udev:/run/udev:ro

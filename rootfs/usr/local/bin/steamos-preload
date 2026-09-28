@@ -1,30 +1,56 @@
 #!/bin/bash
-# Installs the popular Steam Deck add-ons picked in PRELOAD_APPS (comma or
-# space separated), the way a Deck user would, with each project's own
-# installer. Runs as root at every start, before Steam; whatever is already
-# installed is left alone (each updates itself from then on).
-#   decky    Decky Loader: its official installer (install_release.sh),
-#            whose plugin_loader service the container's systemctl runs
-#   emudeck  EmuDeck: its official "Install EmuDeck" icon on the desktop;
-#            the setup is interactive, so it's run from Desktop Mode
-#   heroic   Heroic Games Launcher (Epic, GOG, Amazon) from Flathub, as
-#            Discover installs it, and added to Steam for Gaming Mode
+# Installs the popular Steam Deck add-ons picked at start, the way a Deck user
+# would, with each project's own installer. Runs as root at every start,
+# before Steam; whatever is already installed is left alone (each updates
+# itself from then on, or through Discover). The README ("Add-ons") lists
+# every option.
+#   PRELOAD_APPS      names from the catalog below, comma or space separated
+#   PRELOAD_FLATPAKS  any other Flathub app IDs, comma or space separated
+#   DECKY_PLUGINS     Decky plugin store names, comma separated (implies decky)
+#   ADD_TO_STEAM      which of those to add to Steam as non-Steam games (for
+#                     Gaming Mode): empty = the game launchers (marked "steam"
+#                     below), "none", or names/app IDs; "default" in the list
+#                     stands for the launchers, e.g. "default,discord"
 # An installed Decky is started on every boot whether or not it's listed.
 set -uo pipefail
+PRELOAD_APPS=${PRELOAD_APPS:-} PRELOAD_FLATPAKS=${PRELOAD_FLATPAKS:-} DECKY_PLUGINS=${DECKY_PLUGINS:-}
 
 home=/home/deck
 homebrew=$home/homebrew
 state=$home/.config/steamos-docker/preload
+flatpak_log=/var/log/preload-flatpak.log
 log() { echo "[preload] $*"; }
 as_deck() { sudo -u deck -H "$@"; }
 
-want() { [[ ",${PRELOAD_APPS// /,}," == *",$1,"* ]]; }
+# Flatpak apps: name | remote | app ID | "steam" to add it to Steam's library
+# (Gaming Mode), as Deck users do for launchers.
+catalog=(
+    "heroic|flathub|com.heroicgameslauncher.hgl|steam"
+    "lutris|flathub|net.lutris.Lutris|steam"
+    "bottles|flathub|com.usebottles.bottles|"
+    "protonup|flathub|net.davidotek.pupgui2|"
+    "protontricks|flathub|com.github.Matoking.protontricks|"
+    "retrodeck|flathub|net.retrodeck.retrodeck|steam"
+    "geforcenow|GeForceNOW|com.nvidia.geforcenow|steam"
+    "xcloud|flathub|com.microsoft.Edge|"
+    "firefox|flathub|org.mozilla.firefox|"
+    "chrome|flathub|com.google.Chrome|"
+    "discord|flathub|com.discordapp.Discord|"
+    "flatseal|flathub|com.github.tchx84.Flatseal|"
+)
+declare -A remote_url=(
+    [flathub]=https://dl.flathub.org/repo/flathub.flatpakrepo
+    [GeForceNOW]=https://international.download.nvidia.com/GFNLinux/flatpak/geforcenow.flatpakrepo
+)
 
-for app in ${PRELOAD_APPS//,/ }; do
-    case "$app" in
-        decky|emudeck|heroic) ;;
-        *) log "WARNING: unknown app '$app' in PRELOAD_APPS (known: decky, emudeck, heroic)" ;;
-    esac
+apps=" ${PRELOAD_APPS//,/ } "
+want() { [[ "$apps" == *" $1 "* ]]; }
+[[ -n "${DECKY_PLUGINS:-}" ]] && apps+="decky "
+
+known=" decky emudeck "
+for entry in "${catalog[@]}"; do known+="${entry%%|*} "; done
+for app in $apps; do
+    [[ "$known" == *" $app "* ]] || log "WARNING: unknown app '$app' in PRELOAD_APPS (known:$known)"
 done
 as_deck mkdir -p "$state"
 
@@ -60,6 +86,87 @@ decky() {
     # only if Steam was already installed).
     as_deck mkdir -p "$home/.local/share/Steam"
     as_deck touch "$home/.local/share/Steam/.cef-enable-remote-debugging"
+    decky_plugins
+}
+
+# Plugins from Decky's store, installed the way Decky's own store does
+# (backend/decky_loader/browser.py): the version's zip, checked against its
+# sha256, unpacked into ~/homebrew/plugins, its remote binaries fetched, and
+# owned by deck unless the plugin runs as root. Decky loads them when it
+# starts, which is right after this.
+decky_plugins() {
+    [[ -n "${DECKY_PLUGINS:-}" ]] || return 0
+    local store name asked ver hash url zip dir pj order=$homebrew/settings/loader.json
+    local -a wanted
+    IFS=, read -r -a wanted <<<"$DECKY_PLUGINS"
+    for name in "${wanted[@]}"; do
+        name=$(sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' <<<"$name")
+        [[ -n "$name" ]] || continue
+        # Installed already (Decky updates it from then on)?
+        for pj in "$homebrew"/plugins/*/plugin.json; do
+            [[ -r "$pj" ]] && jq -e --arg n "$name" '(.name | ascii_downcase) == ($n | ascii_downcase)' "$pj" >/dev/null 2>&1 \
+                && continue 2
+        done
+        if [[ -z "${store:-}" ]]; then
+            store=$(curl -fsSL --retry 3 https://plugins.deckbrew.xyz/plugins) \
+                || { log "WARNING: Decky's plugin store is unreachable; plugins not installed"; return 0; }
+        fi
+        asked=$name hash=""
+        read -r name ver hash url < <(jq -r --arg n "$name" '
+            [.[] | select((.name | ascii_downcase) == ($n | ascii_downcase))][0] // empty
+            | .name as $name | (.versions | max_by(.created)) as $v
+            | [($name | gsub(" "; "\u001f")), $v.name, $v.hash,
+               ($v.artifact // "https://cdn.tzatzikiweeb.moe/file/steam-deck-homebrew/versions/\($v.hash).zip")]
+            | @tsv' <<<"$store")
+        if [[ -z "$hash" ]]; then
+            log "WARNING: no Decky plugin named '$asked' in the store (names as shown in Decky's store)"
+            continue
+        fi
+        name=${name//$'\x1f'/ }
+        zip=$(mktemp)
+        if ! curl -fsSL --retry 3 -o "$zip" "$url" || [[ "$(sha256sum "$zip" | cut -d' ' -f1)" != "$hash" ]]; then
+            log "WARNING: couldn't download Decky plugin $name"; rm -f "$zip"; continue
+        fi
+        # The zip holds one top-level folder with plugin.json.
+        dir=$(python3 - "$zip" <<'PY'
+import sys, zipfile
+names = zipfile.ZipFile(sys.argv[1]).namelist()
+tops = [n.split("/")[0] for n in names if n.endswith("/plugin.json") and n.count("/") == 1]
+print(tops[0] if len(tops) == 1 else "")
+PY
+)
+        if [[ -z "$dir" ]]; then log "WARNING: Decky plugin $name has an unexpected layout"; rm -f "$zip"; continue; fi
+        mkdir -p "$homebrew/plugins"
+        python3 -m zipfile -e "$zip" "$homebrew/plugins/" && rm -f "$zip"
+        dir=$homebrew/plugins/$dir
+        if ! remote_binaries "$dir"; then
+            log "WARNING: Decky plugin $name's binaries failed to download; removed it"
+            rm -rf "$dir"; continue
+        fi
+        if jq -e '.flags // [] | index("root")' "$dir/plugin.json" >/dev/null; then
+            chown -R root:root "$dir"
+        else
+            chown -R deck:deck "$dir"
+        fi
+        chown root:root "$dir" "$dir/plugin.json"
+        chmod 755 "$dir" "$dir/plugin.json"
+        if [[ -f "$order" ]]; then
+            jq --arg n "$name" '.pluginOrder = ((.pluginOrder // []) - [$n] + [$n])' "$order" >"$order.new" \
+                && cat "$order.new" >"$order"; rm -f "$order.new"
+        fi
+        log "Decky plugin $name $ver installed"
+    done
+}
+
+remote_binaries() {  # plugin dir: fetch package.json's remote_binary entries
+    local dir=$1 n u h
+    [[ -r "$dir/package.json" ]] || return 0
+    while IFS=$'\t' read -r n u h; do
+        [[ -n "$n" ]] || continue
+        mkdir -p "$dir/bin"
+        curl -fsSL --retry 3 -o "$dir/bin/$n" "$u" || return 1
+        [[ "$(sha256sum "$dir/bin/$n" | cut -d' ' -f1)" == "$h" ]] || return 1
+    done < <(jq -r '.remote_binary // [] | .[] | [.name, .url, .sha256hash] | @tsv' "$dir/package.json")
 }
 
 # --- EmuDeck ------------------------------------------------------------------
@@ -82,43 +189,118 @@ EOF
     as_deck chmod +x "$home/Desktop/EmuDeck.desktop"
 }
 
-# --- Heroic Games Launcher ----------------------------------------------------
-heroic_id=com.heroicgameslauncher.hgl
-heroic() {
-    want heroic || return 0
-    if ! as_deck flatpak info --user "$heroic_id" >/dev/null 2>&1; then
-        log "installing Heroic Games Launcher from Flathub (in the background)"
-        as_deck flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo \
-            && as_deck flatpak install --user --noninteractive -y flathub "$heroic_id" >/var/log/heroic-install.log 2>&1 \
-            || { log "WARNING: Heroic install failed (see /var/log/heroic-install.log)"; return 0; }
-        log "Heroic Games Launcher installed"
+# --- Flatpak apps -------------------------------------------------------------
+# Installed for deck (--user): /home/deck persists, /var/lib/flatpak doesn't.
+flatpak_install() {  # remote app-id label
+    as_deck flatpak info --user "$2" >/dev/null 2>&1 && return 0
+    log "installing $3 from ${1/flathub/Flathub}"
+    as_deck flatpak remote-add --user --if-not-exists "$1" "${remote_url[$1]}" >>"$flatpak_log" 2>&1
+    # Apps from other remotes still take their runtime from Flathub.
+    as_deck flatpak remote-add --user --if-not-exists flathub "${remote_url[flathub]}" >>"$flatpak_log" 2>&1
+    if as_deck flatpak install --user --noninteractive -y "$1" "$2" >>"$flatpak_log" 2>&1; then
+        log "$3 installed"
+    else
+        log "WARNING: $3 failed to install (see $flatpak_log)"; return 1
     fi
-    [[ -e "$state/heroic-in-steam" ]] && return 0
+}
 
-    # Add it to Steam once, with Valve's "Add to Steam" helper, as soon as
-    # Steam is running with an account signed in.
-    local desktop=$home/.local/share/flatpak/exports/share/applications/$heroic_id.desktop tries=0
-    in_steam() { grep -qs "$heroic_id" "$home"/.local/share/Steam/userdata/*/config/shortcuts.vdf; }
+# Xbox Cloud Gaming, set up as Microsoft's Steam Deck guide does: Edge from
+# Flathub, allowed to see controllers through udev, opening xbox.com/play in
+# kiosk mode. (The guide's window size and scale flags are for the Deck's
+# 1280x800 panel; here the display is the Moonlight client's.)
+xcloud_desktop=$home/.local/share/applications/xbox-cloud-gaming.desktop
+xcloud_setup() {
+    as_deck flatpak override --user --filesystem=/run/udev:ro com.microsoft.Edge
+    [[ -e "$xcloud_desktop" ]] && return 0
+    as_deck mkdir -p "$(dirname "$xcloud_desktop")"
+    as_deck tee "$xcloud_desktop" >/dev/null <<'EOF'
+[Desktop Entry]
+Type=Application
+Name=Xbox Cloud Gaming
+Comment=Play Xbox Game Pass games in the cloud (Microsoft Edge)
+Exec=/usr/bin/flatpak run --branch=stable --arch=x86_64 --command=/app/bin/edge com.microsoft.Edge --kiosk https://www.xbox.com/play
+Icon=com.microsoft.Edge
+Categories=Game;
+EOF
+}
+
+# Adds each launcher to Steam once, with Valve's "Add to Steam" helper (the
+# desktop's right-click Add to Steam), as soon as Steam is running with an
+# account signed in. Items: label | .desktop file | text that shows up in
+# shortcuts.vdf once added.
+add_to_steam() {
+    local item label desktop match pending=() tries=0
+    in_steam() { grep -qsF "$1" "$home"/.local/share/Steam/userdata/*/config/shortcuts.vdf; }
+    for item in "$@"; do
+        IFS='|' read -r label desktop match <<<"$item"
+        [[ -e "$state/in-steam-${match//\//_}" ]] || pending+=("$item")
+    done
     for _ in $(seq 720); do
-        in_steam && break
-        if (( tries < 3 )) && pgrep -u deck -x steamwebhelper >/dev/null \
+        (( ${#pending[@]} )) || return 0
+        if pgrep -u deck -x steamwebhelper >/dev/null \
             && compgen -G "$home/.local/share/Steam/userdata/[1-9]*/config" >/dev/null; then
-            as_deck env -u XDG_SESSION_TYPE holo-add-to-steam "$desktop" >/dev/null 2>&1 || true
+            local left=()
+            for item in "${pending[@]}"; do
+                IFS='|' read -r label desktop match <<<"$item"
+                if ! in_steam "$match" && (( tries < 3 )); then
+                    as_deck env -u XDG_SESSION_TYPE holo-add-to-steam "$desktop" >/dev/null 2>&1 || true
+                    # Steam saves shortcuts.vdf shortly after; don't add it twice.
+                    for _ in $(seq 60); do in_steam "$match" && break; sleep 1; done
+                fi
+                if in_steam "$match"; then
+                    as_deck touch "$state/in-steam-${match//\//_}"
+                    log "$label added to Steam"
+                else
+                    left+=("$item")
+                fi
+            done
+            pending=("${left[@]}")
             tries=$((tries + 1))
-            # Steam saves shortcuts.vdf shortly after; don't add it twice.
-            for _ in $(seq 60); do in_steam && break; sleep 1; done
-            continue
+            (( tries < 3 )) || break
         fi
         sleep 10
     done
-    if in_steam; then
-        as_deck touch "$state/heroic-in-steam"
-        log "Heroic Games Launcher added to Steam"
-    else
-        log "WARNING: couldn't add Heroic to Steam; add it in Desktop Mode (right-click it in the app menu > Add to Steam)"
-    fi
+    for item in "${pending[@]}"; do
+        log "WARNING: couldn't add ${item%%|*} to Steam; in Desktop Mode, right-click it in the app menu > Add to Steam"
+    done
+}
+
+steam_list=" ${ADD_TO_STEAM:-default} "
+steam_list=${steam_list//,/ }
+# Whether ADD_TO_STEAM picks this app: by name or app ID, or through
+# "default" when it's one of the launchers.
+to_steam_wanted() {  # name id default(steam|"")
+    [[ "$steam_list" == *" none "* ]] && return 1
+    [[ "$steam_list" == *" $1 "* || "$steam_list" == *" $2 "* ]] && return 0
+    [[ "$steam_list" == *" default "* && "$3" == steam ]]
+}
+
+flatpaks() {
+    local entry name remote id steam to_steam=() exports=$home/.local/share/flatpak/exports/share/applications
+    for entry in "${catalog[@]}"; do
+        IFS='|' read -r name remote id steam <<<"$entry"
+        want "$name" || continue
+        flatpak_install "$remote" "$id" "$name" || continue
+        if [[ "$name" == xcloud ]]; then
+            xcloud_setup
+            to_steam_wanted "$name" "$id" steam \
+                && to_steam+=("Xbox Cloud Gaming|$xcloud_desktop|xbox.com/play")
+        elif to_steam_wanted "$name" "$id" "$steam"; then
+            to_steam+=("$name|$exports/$id.desktop|$id")
+        fi
+    done
+    for id in ${PRELOAD_FLATPAKS//,/ }; do
+        flatpak_install flathub "$id" "$id" || continue
+        to_steam_wanted "$id" "$id" "" && to_steam+=("$id|$exports/$id.desktop|$id")
+    done
+    for name in $steam_list; do
+        [[ "$name" == default || "$name" == none || "$apps" == *" $name "* \
+            || " ${PRELOAD_FLATPAKS//,/ } " == *" $name "* ]] \
+            || log "WARNING: ADD_TO_STEAM lists '$name', which isn't in PRELOAD_APPS or PRELOAD_FLATPAKS"
+    done
+    (( ${#to_steam[@]} )) && add_to_steam "${to_steam[@]}"
 }
 
 decky
 emudeck
-heroic &
+flatpaks &
