@@ -162,6 +162,18 @@ RUN set -eux; \
 # `deck` (uid 1000) is the default user on real SteamOS.
 RUN set -eux; \
     echo "IMAGE_VERSION=${IMAGE_VERSION}" >> /etc/steamos-docker-release; \
+    # SteamOS's image build adds its variant, release and build to
+    # os-release; Steam's System settings show them as OS Variant, OS Version
+    # and OS Build (OS Name is lsb-release's "SteamOS Holo"). Here: this
+    # project, the SteamOS release its packages come from, and the image.
+    . /etc/steamos-docker-release; \
+    [ -e /etc/os-release ] || ln -sf ../usr/lib/os-release /etc/os-release; \
+    osr=$(readlink -f /etc/os-release); \
+    sed -i -E '/^(VARIANT|VARIANT_ID|VERSION_ID|BUILD_ID|STEAMOS_DEFAULT_UPDATE_BRANCH)=/d' "$osr"; \
+    printf '%s\n' 'VARIANT="SteamOS-Headless"' 'VARIANT_ID=steamos-headless' \
+        "VERSION_ID=${STEAMOS_VERSION}" "BUILD_ID=${IMAGE_VERSION}" \
+        'STEAMOS_DEFAULT_UPDATE_BRANCH=stable' >> "$osr"; \
+    cat "$osr"; \
     useradd -m -u 1000 -G video,input,audio,wheel -s /bin/bash deck; \
     echo 'deck ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/deck; \
     mkdir -p /run/user/1000 && chown deck:deck /run/user/1000 && chmod 700 /run/user/1000
