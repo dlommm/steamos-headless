@@ -56,6 +56,17 @@ Apps → install **Docker Compose Manager** → Docker → Add New Stack → pas
 [`deploy/unraid/compose.yaml`](../../deploy/unraid/compose.yaml) (already set up with Unraid
 paths).
 
+## Network type
+
+Either works:
+
+- **Host** (template default): Sunshine is at the Unraid server's IP.
+- **Custom: br0** with its own fixed IP: Sunshine is at that IP (e.g. `https://172.16.0.34:47990`).
+  Add `--hostname=steamos` to Extra Parameters so Moonlight shows a readable name.
+
+Don't use **Bridge**: Moonlight can't discover or reach Sunshine behind Docker's NAT. The log
+warns if the container is on it.
+
 ## Storage
 
 - **Steam home:** a **pool/cache path** (`/mnt/cache/appdata/steamos`), not `/mnt/user/...`.

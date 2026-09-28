@@ -10,12 +10,13 @@ as_deck() { sudo -u deck -E -H "$@"; }
 # --- Version / network -----------------------------------------------------
 . /etc/steamos-docker-release 2>/dev/null || true
 log "image ${IMAGE_VERSION:-unknown} (SteamOS ${STEAMOS_VERSION:-?}, Sunshine ${SUNSHINE_VERSION:-?})"
-# Host networking shares the host's network namespace, so PID 1's namespace
-# matches the host's: detect bridge mode by the telltale container eth0 +
-# docker-assigned hostname. Moonlight discovery and Sunshine's ports need host.
-if [[ -e /sys/class/net/eth0 && ! -e /sys/class/net/docker0 ]] && ! ip route show default | grep -qvE ' dev eth0( |$)'; then
-    log "WARNING: not using host networking (network_mode: host / Unraid Network Type: Host)."
-    log "         Moonlight discovery, streaming ports and the web UI login need it."
+# Works: host networking, or a macvlan/ipvlan network that gives the container
+# its own LAN IP (Unraid "Custom: br0"). Doesn't: Docker's default bridge (a
+# veth behind NAT), where Moonlight discovery and Sunshine's ports can't reach it.
+if [[ ! -e /sys/class/net/docker0 ]] && ip -d link show 2>/dev/null | grep -q ' veth '; then
+    log "WARNING: on Docker's internal bridge network; Moonlight can't discover or reach Sunshine."
+    log "         Use host networking (network_mode: host / Unraid Network Type: Host) or a"
+    log "         macvlan/ipvlan network with its own LAN IP (Unraid Custom: br0)."
 fi
 
 # --- Resources -------------------------------------------------------------
