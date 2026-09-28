@@ -1,0 +1,42 @@
+#!/bin/bash
+# Container stand-in for steamosctl (the steamos-manager CLI), covering the
+# session commands SteamOS's own scripts use: holo-session-select (what Steam
+# runs for Switch to Desktop) and the desktop's Return to Gaming Mode icon.
+# On SteamOS these reconfigure SDDM; here they drive the session manager.
+# The default login mode is kept in deck's home, like SteamOS keeps it.
+set -uo pipefail
+
+mode_file=/home/deck/.config/steamos-docker/login-mode
+
+login_mode() { cat "$mode_file" 2>/dev/null || echo game; }
+
+set_login_mode() {
+    case "$1" in
+        game|desktop) ;;
+        *) echo "invalid login mode: $1 (game or desktop)" >&2; exit 1 ;;
+    esac
+    if [[ $(id -u) -eq 0 ]]; then
+        sudo -n -u deck mkdir -p "$(dirname "$mode_file")"
+        echo "$1" | sudo -n -u deck tee "$mode_file" >/dev/null
+    else
+        mkdir -p "$(dirname "$mode_file")"
+        echo "$1" > "$mode_file"
+    fi
+}
+
+case "${1:-}" in
+    get-default-login-mode)       login_mode ;;
+    set-default-login-mode)       set_login_mode "${2:-}" ;;
+    # Only Plasma on Wayland exists here, so any desktop session is Plasma.
+    get-default-desktop-session)  echo plasma.desktop ;;
+    set-default-desktop-session)  : ;;
+    switch-to-desktop-mode)       exec steamos-session-control switch plasma ;;
+    switch-to-game-mode)          exec steamos-session-control switch gamescope ;;
+    "")
+        echo "usage: steamosctl <command>" >&2; exit 1 ;;
+    *)
+        # The rest of steamos-manager (TDP, fan, GPU clocks, Wi-Fi debug...)
+        # is Deck hardware, which a container doesn't have.
+        echo "steamosctl: '$1' isn't available in the SteamOS container" >&2
+        exit 1 ;;
+esac

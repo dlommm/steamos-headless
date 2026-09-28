@@ -1,3 +1,0 @@
-#!/bin/bash
-# Steam calls the polkit helper; no pkexec needed in the container.
-exec /usr/bin/jupiter-biosupdate "$@"

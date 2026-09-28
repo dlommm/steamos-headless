@@ -111,14 +111,13 @@ RUN set -eux; \
         plasma-desktop plasma-workspace kwin plasma-nm plasma-pa kscreen breeze breeze-gtk \
         xdg-desktop-portal-kde steamdeck-kde-presets kdialog qt6-tools qt6-wayland \
         dolphin konsole kate ark spectacle discover flatpak \
-        xdg-utils lib32-libxkbcommon python-dbus python-gobject; do \
+        xdg-utils lib32-libxkbcommon python-dbus python-gobject \
+        jupiter-hw-support jupiter-legacy-support jupiter-dock-updater-bin steamos-customizations-jupiter \
+        holo-session-selection steamos-alias holo-glibc-locales steamos-networking-tools \
+        steam-im-modules ibus steam_notif_daemon xdg-desktop-portal-holo xdg-desktop-portal-gamescope; do \
         n=$((n+1)); [ "$n" -lt 4 ] || exit 1; echo "pacman failed, retry $n/3"; sleep 15; done; \
     pacman -Q steam-jupiter-stable gamescope mesa vulkan-radeon plasma-workspace \
         | awk '{gsub(/-/,"_",$1); print toupper($1) "=" $2}' >> /etc/steamos-docker-release; \
-    # Steam and Proton expect a real UTF-8 locale (Steam logged
-    # 'setlocale "en_US.UTF-8": No such file' without one), as SteamOS has.
-    sed -i 's/^#\(en_US.UTF-8 UTF-8\)/\1/' /etc/locale.gen; \
-    locale-gen; \
     # SteamOS's Return to Gaming Mode icon calls "qdbus"; Qt 6 names it qdbus6.
     command -v qdbus >/dev/null || ln -s "$(command -v qdbus6 || echo /usr/lib/qt6/bin/qdbus)" /usr/local/bin/qdbus; \
     yes | pacman -Scc >/dev/null; \
@@ -169,7 +168,6 @@ ENV XDG_RUNTIME_DIR=/run/user/1000 \
     LANG=en_US.UTF-8 \
     STEAMOS_RESOLUTION=1920x1080 \
     STEAMOS_REFRESH=60 \
-    STEAM_ARGS="-gamepadui -steamos3" \
     SUNSHINE_USER=admin \
     SUNSHINE_PASS="" \
     GPU_VENDOR=auto \

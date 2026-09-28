@@ -1,0 +1,6 @@
+#!/bin/bash
+# Container override of SteamOS's holo-priv-write, which writes Steam Deck
+# hardware settings to sysfs: backlight, GPU clocks and power, TDP, charge
+# limit. In a privileged container those paths belong to the host's devices,
+# so the write is skipped; Steam treats the setting as applied.
+exit 0

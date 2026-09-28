@@ -1,0 +1,13 @@
+#!/bin/bash
+# No journal in the container: run the command (or pass stdin through) with
+# its output going to the container log instead.
+args=()
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -t|-p|--identifier|--priority|--stderr-priority|--level-prefix) shift 2 ;;
+        --*=*) shift ;;
+        -*) shift ;;
+        *) break ;;
+    esac
+done
+if [[ $# -gt 0 ]]; then exec "$@"; else exec cat >&2; fi

@@ -1,8 +1,0 @@
-#!/bin/bash
-# SteamOS's OS updater, which Steam runs during first-run setup and from
-# Settings > System. In this container the OS is the image: it's updated by
-# pulling a new release, not in place. So always report "up to date"; Steam
-# reads exit status 7 as "no update available". Without this command setup
-# stops at "Unable to download the required update ... (2)".
-echo "SteamOS in Docker: the system updates with the container image; nothing to do here."
-exit 7

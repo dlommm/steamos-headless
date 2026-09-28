@@ -1,6 +1,0 @@
-#!/bin/bash
-# SteamOS helper (steamos-format-sdcard): formatting, trimming or resetting disks, or
-# rebooting into another OS. In a container these would act on the host's
-# drives, so they're refused.
-echo "steamos-format-sdcard: not available in the SteamOS container" >&2
-exit 1

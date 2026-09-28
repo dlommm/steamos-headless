@@ -1,0 +1,30 @@
+#!/bin/bash
+# Tells the container's session manager (steamos-session-manager) what to do.
+# This is what SDDM and systemd do on SteamOS; the container's steamosctl,
+# systemctl, reboot/poweroff and login1 stand-ins all come through here.
+#   switch gamescope|plasma   end the current session, start that one
+#   restart                   restart the current session
+#   off                       stop until the next Moonlight connection
+set -uo pipefail
+
+state=/run/user/1000/steamos-session
+
+# May be reached as root (through pkexec, logind or reboot).
+if [[ $(id -u) -eq 0 ]]; then
+    exec sudo -n -u deck -H XDG_RUNTIME_DIR=/run/user/1000 "$0" "$@"
+fi
+mkdir -p "$state"
+
+case "${1:-} ${2:-}" in
+    "switch gamescope"|"switch plasma") echo "$2" > "$state/next" ;;
+    "restart "*) cp "$state/current" "$state/next" 2>/dev/null || true ;;
+    "off "*)     touch "$state/off" ;;
+    *) echo "usage: $0 switch gamescope|plasma | restart | off" >&2; exit 1 ;;
+esac
+
+# The manager ends the current session and starts the next one.
+pid=$(cat "$state/manager.pid" 2>/dev/null)
+if [[ -z "$pid" ]] || ! kill -USR1 "$pid" 2>/dev/null; then
+    echo "steamos-session-control: the session manager isn't running" >&2
+    exit 1
+fi

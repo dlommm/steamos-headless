@@ -1,0 +1,26 @@
+#!/bin/bash
+# Container stand-in for systemctl (there's no systemd here). Handles what
+# SteamOS's scripts ask of it: reboot/poweroff and restarting the display
+# manager act on the session; other units don't exist in the container.
+set -uo pipefail
+args=()
+for a in "$@"; do [[ "$a" == -* ]] || args+=("$a"); done
+verb=${args[0]:-}
+unit=${args[1]:-}
+case "$verb" in
+    reboot|kexec|soft-reboot) exec steamos-session-control restart ;;
+    poweroff|halt|suspend|hibernate|hybrid-sleep)
+        [[ "$verb" == suspend* || "$verb" == hibernate || "$verb" == hybrid-sleep ]] && exit 0
+        exec steamos-session-control off ;;
+    start|restart|reload|try-restart|reload-or-restart)
+        case "$unit" in
+            sddm|sddm.service|display-manager|display-manager.service|gamescope-session*|steam-launcher*)
+                exec steamos-session-control restart ;;
+        esac
+        echo "systemctl: $unit isn't available in the SteamOS container" >&2; exit 0 ;;
+    is-active)  echo inactive; exit 3 ;;
+    is-enabled) echo disabled; exit 1 ;;
+    is-failed)  echo inactive; exit 1 ;;
+    is-system-running) echo running; exit 0 ;;
+    *) exit 0 ;;
+esac

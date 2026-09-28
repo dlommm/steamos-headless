@@ -1,0 +1,7 @@
+#!/bin/bash
+# Container stand-in for hostnamectl. The container's hostname is Docker's
+# (set it with --hostname), so set-hostname changes nothing.
+case "${1:-}" in
+    set-hostname) echo "hostnamectl: the container's hostname is set by Docker (--hostname)" >&2; exit 0 ;;
+    *) echo " Static hostname: $(cat /proc/sys/kernel/hostname)" ;;
+esac

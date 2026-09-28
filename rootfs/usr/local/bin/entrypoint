@@ -10,6 +10,14 @@ as_deck() { sudo -u deck -E -H "$@"; }
 # --- Version / network -----------------------------------------------------
 . /etc/steamos-docker-release 2>/dev/null || true
 log "image ${IMAGE_VERSION:-unknown} (SteamOS ${STEAMOS_VERSION:-?}, Sunshine ${SUNSHINE_VERSION:-?})"
+
+# SteamOS lets every user raise priority to nice -8 (for Proton's threads).
+# Without privileged mode the container may not grant that, PAM then refuses
+# every sudo session, and nothing here could run as deck. Set it aside then.
+if ! sudo -n -u deck true 2>/dev/null && [[ -e /etc/security/limits.d/15-proton-nice.conf ]]; then
+    mv /etc/security/limits.d/15-proton-nice.conf /etc/security/limits.d/15-proton-nice.conf.disabled
+    log "WARNING: the container can't raise priorities (not privileged?); SteamOS's Proton nice limit is off"
+fi
 # Works: host networking, or a macvlan/ipvlan network that gives the container
 # its own LAN IP (Unraid "Custom: br0"). Doesn't: Docker's default bridge (a
 # veth behind NAT), where Moonlight discovery and Sunshine's ports can't reach it.

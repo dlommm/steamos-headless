@@ -129,8 +129,14 @@ Like a Deck, the container runs one session at a time, and a session manager kee
 - If Steam quits, restarts itself (after setup or an update) or crashes, the session comes back.
 - **Restart** restarts the session, and **Shut Down** stops it until the next Moonlight
   connection. The container keeps running.
-- Steam's system update, BIOS, dock and firmware checks report "up to date": the OS here is the
-  image, updated by pulling a newer one.
+- Gaming Mode runs through Valve's own session scripts (`gamescope-session`, `steam-launcher`,
+  mangoapp), so Steam sees the same environment and features as on a Deck.
+- SteamOS's own system packages are installed (`jupiter-hw-support`, `steamos-customizations`,
+  `holo-session-selection`, `steamos-alias`, `steamdeck-kde-presets`...), so every
+  `steamos-*` helper Steam calls is Valve's script. What those scripts expect from the OS
+  (systemd, polkit, SDDM, logind, the A/B updater) is provided in container terms: OS updates
+  report "no update" (the OS is the image), the time zone applies, and formatting, trimming or
+  factory-resetting drives is refused so it can't touch the host's disks.
 
 **Why not Bazzite, the Deck recovery image, or Apollo?** A container uses the host's kernel.
 Bazzite images and the recovery image are whole bootable OSes (kernel, firmware, updater).

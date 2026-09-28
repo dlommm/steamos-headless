@@ -1,0 +1,18 @@
+#!/bin/bash
+# Container stand-in for atomupd-manager, SteamOS's A/B OS updater client,
+# which Valve's holo-update and holo-select-branch call. Here the OS is the
+# container image, updated by pulling a newer one, so there's never an OS
+# update to apply. The chosen branch is remembered but changes nothing.
+set -uo pipefail
+branch_file=/home/deck/.config/steamos-docker/os-branch
+case "${1:-}" in
+    check)             echo "No update available" ;;
+    get-update-status) echo "idle" ;;
+    tracked-branch)    cat "$branch_file" 2>/dev/null || echo stable ;;
+    list-branches)     printf '%s\n' stable ;;
+    switch-branch)
+        sudo -n -u deck mkdir -p "$(dirname "$branch_file")" 2>/dev/null || mkdir -p "$(dirname "$branch_file")"
+        echo "${2:-stable}" | { sudo -n -u deck tee "$branch_file" 2>/dev/null || tee "$branch_file"; } >/dev/null ;;
+    update)            echo "No update available" >&2; exit 1 ;;
+    *)                 exit 0 ;;
+esac

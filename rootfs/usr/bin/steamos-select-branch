@@ -1,8 +1,0 @@
-#!/bin/bash
-# SteamOS OS update channel (Settings > System). The container image decides
-# the OS version, so there's one fixed channel.
-case "${1:-}" in
-    -c) echo stable ;;
-    -l) echo stable ;;
-esac
-exit 0

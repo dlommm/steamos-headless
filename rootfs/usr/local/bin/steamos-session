@@ -31,9 +31,9 @@ if [[ -e "$state/off" ]]; then
 fi
 
 if [[ "$current" != "$want" ]]; then
-    exec steamos-session-select "$want"
+    exec steamos-session-control switch "$want"
 fi
 if [[ "$want" == gamescope && "$(cat "$state/running-mode" 2>/dev/null)" != "$mode" ]]; then
-    exec steamos-session-select --restart
+    exec steamos-session-control restart
 fi
 exit 0

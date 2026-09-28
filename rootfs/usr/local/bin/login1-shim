@@ -29,9 +29,9 @@ def log(msg):
     print(f"[login1] {msg}", flush=True)
 
 
-def session_select(arg):
-    # steamos-session-select switches to deck itself when run as root.
-    subprocess.Popen(["/usr/bin/steamos-session-select", arg],
+def session_control(arg):
+    # steamos-session-control switches to deck itself when run as root.
+    subprocess.Popen(["/usr/local/bin/steamos-session-control", arg],
                      stdin=subprocess.DEVNULL, start_new_session=True)
 
 
@@ -44,12 +44,12 @@ class Manager(dbus.service.Object):
     @dbus.service.method(IFACE, in_signature="b")
     def Reboot(self, interactive):
         log("Reboot: restarting the session")
-        session_select("--restart")
+        session_control("restart")
 
     @dbus.service.method(IFACE, in_signature="b")
     def PowerOff(self, interactive):
         log("PowerOff: stopping the session until the next Moonlight connection")
-        session_select("--off")
+        session_control("off")
 
     @dbus.service.method(IFACE, in_signature="b")
     def Suspend(self, interactive):

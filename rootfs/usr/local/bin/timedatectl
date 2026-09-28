@@ -1,0 +1,22 @@
+#!/bin/bash
+# Container stand-in for timedatectl. set-timezone applies the zone and keeps
+# it in deck's home so it survives recreating the container.
+set -uo pipefail
+saved=/home/deck/.config/steamos-docker/timezone
+current() { readlink /etc/localtime 2>/dev/null | sed 's|.*/zoneinfo/||'; }
+case "${1:-status}" in
+    set-timezone)
+        tz=${2:?usage: timedatectl set-timezone <Area/City>}
+        [[ "$tz" != *..* && -f "/usr/share/zoneinfo/$tz" ]] || { echo "Invalid or not installed time zone '$tz'." >&2; exit 1; }
+        if [[ $(id -u) -ne 0 ]]; then exec sudo -n "$0" "$@"; fi
+        ln -sf "/usr/share/zoneinfo/$tz" /etc/localtime
+        sudo -n -u deck mkdir -p "$(dirname "$saved")"
+        echo "$tz" | sudo -n -u deck tee "$saved" >/dev/null ;;
+    list-timezones)
+        awk '/^Z/ {print $2} /^L/ {print $3}' /usr/share/zoneinfo/tzdata.zi | sort -u ;;
+    show) echo "Timezone=$(current)" ;;
+    status|"")
+        echo "                Local time: $(date)"
+        echo "                 Time zone: $(current) ($(date +%Z), $(date +%z))" ;;
+    *) exit 0 ;;
+esac

@@ -1,0 +1,6 @@
+#!/bin/bash
+# Container override of SteamOS's holo-factory-reset-config. On a Deck this formats, trims or
+# resets its own drives, or reboots into another OS; in a privileged
+# container it would act on the host's disks, so it's refused.
+echo "holo-factory-reset-config: not available in the SteamOS container (it would act on the host)" >&2
+exit 1

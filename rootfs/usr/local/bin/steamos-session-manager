@@ -4,24 +4,26 @@
 # exactly one session going:
 #   gamescope  Gaming Mode: Steam Big Picture in gamescope (the default)
 #   plasma     Desktop Mode: KDE Plasma with the Steam desktop client
-# When a session ends it starts the next one: whatever steamos-session-select
-# asked for, else the persistent choice, else Gaming Mode. So "Switch to
-# Desktop", "Return to Gaming Mode", Steam's Restart and a Steam that quits or
-# crashes all come back on screen, like on a Deck.
+# When a session ends it starts the next one: whatever was asked for through
+# steamos-session-control (SteamOS's own holo-session-select, via the
+# container's steamosctl), else the default login mode, else Gaming Mode. So
+# Switch to Desktop, Return to Gaming Mode, Steam's Restart and a Steam that
+# quits or crashes all come back on screen, like on a Deck.
 set -uo pipefail
 
 state=/run/user/1000/steamos-session
-persist=/home/deck/.config/steamos-docker/session
+login_mode=/home/deck/.config/steamos-docker/login-mode
 log=/home/deck/.local/state/steamos-session.log
-mkdir -p "$state" "$(dirname "$persist")" "$(dirname "$log")"
+mkdir -p "$state" "$(dirname "$log")"
 export WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-wayland-1}
 
 note() { echo "[session] $*" | tee -a "$log"; }
 
 next_session() {
     local s
-    s=$(cat "$state/next" 2>/dev/null || cat "$persist" 2>/dev/null || true)
+    s=$(cat "$state/next" 2>/dev/null || true)
     rm -f "$state/next"
+    if [[ -z "$s" && "$(cat "$login_mode" 2>/dev/null)" == desktop ]]; then s=plasma; fi
     [[ "$s" == plasma ]] && echo plasma || echo gamescope
 }
 
@@ -30,14 +32,82 @@ current_mode() {
     cat "$state/mode" 2>/dev/null || echo "${STEAMOS_RESOLUTION:-1920x1080}@${STEAMOS_REFRESH:-60}"
 }
 
+# Gaming Mode, the way SteamOS's systemd user units run it:
+#   gamescope-session.service  Valve's /usr/lib/steamos/gamescope-session (its
+#                              environment for Steam, then gamescope)
+#   steam-launcher.service     Valve's steam-launcher, restarted whenever Steam
+#                              exits while gamescope runs (the target
+#                              "Upholds" it), with the short-session tracker
+#   gamescope-mangoapp, ibus-gamescope, steam-notif-daemon
+# All but the first get the environment gamescope-session writes to
+# $XDG_RUNTIME_DIR/gamescope-environment once gamescope is up.
 run_gamescope() {
-    local mode W H R
+    local mode W H R rt=/run/user/1000 bin="$state/bin" envfile gs pids=() envs=()
     mode=$(current_mode)
     IFS='x@' read -r W H R <<<"$mode"
     echo "$mode" > "$state/running-mode"
-    # shellcheck disable=SC2086
-    gamescope -e -f -W "$W" -H "$H" -w "$W" -h "$H" -r "$R" --xwayland-count 2 \
-        -- steam ${STEAM_ARGS:--gamepadui -steamos3} >>"$log" 2>&1 </dev/null
+    envfile="$rt/gamescope-environment"
+    rm -f "$envfile" "$state/ending"
+
+    # Valve's session drives the Deck's panel (DRM mode, eDP-1, 1280x800);
+    # nested in sway, swap those flags for the Moonlight client's resolution.
+    mkdir -p "$bin"
+    cat > "$bin/gamescope" <<EOF
+#!/bin/bash
+args=()
+while [[ \$# -gt 0 ]]; do
+    case "\$1" in
+        --generate-drm-mode|-O|--prefer-output|-w|-h|--nested-width|--nested-height|-W|-H|-r) shift 2 ;;
+        *) args+=("\$1"); shift ;;
+    esac
+done
+exec /usr/bin/gamescope -W $W -H $H -w $W -h $H -r $R -f "\${args[@]}"
+EOF
+    chmod 755 "$bin/gamescope"
+
+    PATH="$bin:$PATH" /usr/lib/steamos/gamescope-session >>"$log" 2>&1 </dev/null &
+    gs=$!
+    for _ in $(seq 150); do
+        [[ -s "$envfile" ]] && break
+        kill -0 "$gs" 2>/dev/null || { wait "$gs"; return; }
+        sleep 0.2
+    done
+    if [[ ! -s "$envfile" ]]; then
+        note "gamescope didn't report ready; stopping it"
+        kill "$gs" 2>/dev/null; wait "$gs"; return
+    fi
+    # The units' EnvironmentFile. Children talk to gamescope, not to sway.
+    mapfile -t envs < <(grep -v '^WAYLAND_DISPLAY=' "$envfile")
+    svc() { env -i "${envs[@]}" "$@" >>"$log" 2>&1 </dev/null; }
+
+    ( while kill -0 "$gs" 2>/dev/null; do svc mangoapp; sleep 1; done ) & pids+=($!)
+    command -v ibus-daemon >/dev/null && { svc ibus-daemon -r --panel=disable --emoji-extension=disable & pids+=($!); }
+    command -v steam_notif_daemon >/dev/null && { svc steam_notif_daemon & pids+=($!); }
+    (
+        while kill -0 "$gs" 2>/dev/null && [[ ! -e "$state/ending" ]]; do
+            svc /usr/lib/steamos/steam-short-session-tracker --track-started
+            if [[ -n "${STEAM_ARGS:-}" ]]; then
+                # shellcheck disable=SC2086
+                svc steam $STEAM_ARGS
+            else
+                svc /usr/lib/steamos/steam-launcher
+            fi
+            svc /usr/lib/steamos/steam-short-session-tracker --track-stopped
+            [[ -e "$state/ending" ]] && break
+            note "Steam exited; starting it again"
+            sleep 1
+        done
+    ) & pids+=($!)
+
+    wait "$gs"
+    # gamescope is gone: the rest of the session goes with it.
+    touch "$state/ending"
+    pkill -u deck -x mangoapp 2>/dev/null
+    pkill -u deck -x steam_notif_dae 2>/dev/null
+    pkill -u deck -x ibus-daemon 2>/dev/null
+    kill "${pids[@]}" 2>/dev/null
+    wait "${pids[@]}" 2>/dev/null
+    rm -f "$envfile"
 }
 
 # Desktop Mode: SteamOS's Plasma (steamdeck-kde-presets supplies the look,
@@ -65,7 +135,7 @@ run_plasma() {
         > "$prt/bin/kwin_wayland_wrapper"
     chmod 755 "$prt/bin/kwin_wayland_wrapper"
 
-    # The session bus address lets steamos-session-select log out cleanly.
+    # The session bus address lets end_session log out cleanly.
     env -u LD_PRELOAD PATH="$prt/bin:$PATH" XDG_RUNTIME_DIR="$prt" \
         WAYLAND_DISPLAY="$rt/$WAYLAND_DISPLAY" XDG_SESSION_TYPE=wayland \
         dbus-run-session -- sh -c 'echo "$DBUS_SESSION_BUS_ADDRESS" > "$1"; exec startplasma-wayland' \
@@ -74,7 +144,7 @@ run_plasma() {
     rm -rf --one-file-system "$prt"
 }
 
-# Ends the running session so the loop moves on. steamos-session-select asks
+# Ends the running session so the loop moves on. steamos-session-control asks
 # for this with SIGUSR1 instead of doing it itself: it's often called from
 # inside Steam, and gamescope's reaper would kill it along with Steam.
 end_session() {
@@ -91,7 +161,9 @@ end_session() {
             pkill -u deck -x kwin_wayland 2>/dev/null
             ;;
         *)
-            # Let Steam exit cleanly first so settings and cloud saves stick.
+            # Stop Steam being started again, then let it exit cleanly first
+            # so settings and cloud saves stick.
+            touch "$state/ending"
             if pgrep -u deck -x steam >/dev/null; then
                 timeout 30 steam -shutdown >/dev/null 2>&1 || true
                 for _ in $(seq 30); do pgrep -u deck -x steam >/dev/null || break; sleep 1; done
@@ -126,7 +198,7 @@ while true; do
     note "$session ended after $((SECONDS - started))s"
 
     # Don't spin if a session dies right away on its own (e.g. a broken
-    # driver); switches asked for through steamos-session-select don't count.
+    # driver); switches asked for through steamos-session-control don't count.
     if (( requested )); then
         quick=0
     elif (( SECONDS - started < 15 )); then

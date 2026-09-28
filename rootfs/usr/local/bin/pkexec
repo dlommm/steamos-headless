@@ -1,0 +1,17 @@
+#!/bin/bash
+# Container stand-in for polkit's pkexec. SteamOS's helpers re-run themselves
+# through it to become root; there's no polkit here, and deck may use sudo.
+set -uo pipefail
+user=root
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --user|-u) user=$2; shift 2 ;;
+        --disable-internal-agent|--keep-cwd) shift ;;
+        --) shift; break ;;
+        -*) shift ;;
+        *) break ;;
+    esac
+done
+[[ $# -gt 0 ]] || { echo "usage: pkexec [--user user] program [args]" >&2; exit 127; }
+if [[ $(id -un) == "$user" ]]; then exec "$@"; fi
+exec sudo -n -u "$user" -- "$@"
