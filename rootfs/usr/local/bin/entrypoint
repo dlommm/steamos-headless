@@ -32,6 +32,8 @@ render_node_for() {
     local node
     for node in /sys/class/drm/renderD*; do
         [[ -e "$node/device/driver" ]] || continue
+        # Skip nodes hidden by NVIDIA_GPU (removed from this container's /dev).
+        [[ -e "/dev/dri/$(basename "$node")" ]] || continue
         if [[ "$(basename "$(readlink -f "$node/device/driver")")" == "$1" ]]; then
             echo "/dev/dri/$(basename "$node")"
             return 0
@@ -51,8 +53,38 @@ if [[ "$GPU_VENDOR" == "auto" ]]; then
     fi
 fi
 
+# NVIDIA_GPU picks one card on multi-GPU hosts (index in nvidia-smi order, or
+# PCI address like 0000:41:00.0), e.g. to leave the other one to AI containers.
+# The other cards' device nodes are removed from this container's own /dev
+# (the host is unaffected), the same isolation NVIDIA_VISIBLE_DEVICES gives.
+select_nvidia_gpu() {
+    local want=$1 i=0 gpu pci minor node keep="" name=""
+    for gpu in $(ls -d /proc/driver/nvidia/gpus/* 2>/dev/null | sort); do
+        pci=$(basename "$gpu")
+        if [[ "$want" == "$i" || "${pci,,}" == "${want,,}" || "${pci,,}" == "0000:${want,,}" ]]; then
+            keep=$pci
+            name=$(awk -F':[ \t]*' '/^Model/ {print $2}' "$gpu/information")
+        fi
+        i=$((i + 1))
+    done
+    [[ -n "$keep" ]] || { log "ERROR: NVIDIA_GPU=$want matches no GPU (have $i)"; exit 1; }
+    for gpu in /proc/driver/nvidia/gpus/*; do
+        pci=$(basename "$gpu")
+        [[ "$pci" == "$keep" ]] && continue
+        minor=$(awk -F':[ \t]*' '/^Device Minor/ {print $2}' "$gpu/information")
+        rm -f "/dev/nvidia${minor}"
+        for node in /sys/bus/pci/devices/"$pci"/drm/card* /sys/bus/pci/devices/"$pci"/drm/renderD*; do
+            [[ -e "$node" ]] && rm -f "/dev/dri/$(basename "$node")"
+        done
+    done
+    log "NVIDIA_GPU=$want: using ${name:-GPU} at $keep only"
+}
+
 case "$GPU_VENDOR" in
     nvidia)
+        if [[ -n "${NVIDIA_GPU:-}" ]]; then
+            select_nvidia_gpu "$NVIDIA_GPU"
+        fi
         /usr/local/bin/nvidia-userspace-install
         RENDER_NODE=${RENDER_NODE:-$(render_node_for nvidia || true)}
         [[ -n "$RENDER_NODE" ]] || log "ERROR: NVIDIA driver loaded but no render node; enable nvidia-drm.modeset=1 on the host"

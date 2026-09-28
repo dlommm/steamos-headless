@@ -31,6 +31,8 @@ services:
     environment:
       # auto (default), nvidia or amd. Only needed on hosts with both GPUs.
       GPU_VENDOR: ${GPU_VENDOR:-auto}
+      # Multi-NVIDIA hosts: use only this card (nvidia-smi index or PCI address).
+      NVIDIA_GPU: ${NVIDIA_GPU:-}
       STEAMOS_RESOLUTION: ${STEAMOS_RESOLUTION:-1920x1080}
       STEAMOS_REFRESH: ${STEAMOS_REFRESH:-60}
       SUNSHINE_USER: ${SUNSHINE_USER:-admin}

@@ -37,6 +37,16 @@ sudo reboot
 cat /sys/module/nvidia_drm/parameters/modeset   # must print Y
 ```
 
+`modeset=1` only adds `/dev/dri` nodes for the card. CUDA and AI containers keep working
+unchanged, and datacenter cards like the L4 work too (their driver is downloaded from NVIDIA's
+Data Center archive automatically).
+
+**Multiple NVIDIA GPUs:** by default the container uses any NVIDIA card. To keep one card for
+AI containers, set `NVIDIA_GPU: "1"` (index as shown by `nvidia-smi`, or a PCI address like
+`0000:c1:00.0`). The container then only sees that card, and you can pin the AI containers to
+the other one with `NVIDIA_VISIBLE_DEVICES=0`. If you never run both at once you don't need
+this, but stop this container before large AI jobs: an idle Steam still holds some VRAM.
+
 The NVIDIA Container Toolkit is **not** needed, and `--runtime=nvidia`,
 `NVIDIA_VISIBLE_DEVICES` and `NVIDIA_DRIVER_CAPABILITIES` should be left out. The container
 gets the GPU through privileged mode and installs the matching driver itself, including the
@@ -56,7 +66,7 @@ sudo udevadm control --reload && sudo udevadm trigger
 
 ```bash
 mkdir -p ~/steamos && cd ~/steamos
-curl -fsSLO https://gitlab.ohhcloud.com/dlomm/arch-steam-headless/-/raw/main/deploy/compose.yaml
+curl -fsSLO https://gitlab.ohhcloud.com/dlomm/arch-steam-headless/-/raw/main/deploy/linux/compose.yaml
 # edit the paths marked CHANGE ME: Steam home on NVMe/SSD, optionally games on an HDD
 # (see ../storage.md)
 docker compose up -d

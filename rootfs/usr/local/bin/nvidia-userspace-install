@@ -37,9 +37,16 @@ run="$cache/NVIDIA-Linux-x86_64-$ver.run"
 mkdir -p "$cache"
 if [[ ! -s "$run" ]]; then
     echo "[nvidia] downloading userspace driver $ver"
-    curl -fL --retry 3 -o "$run.part" \
-        "https://download.nvidia.com/XFree86/Linux-x86_64/$ver/NVIDIA-Linux-x86_64-$ver.run"
-    mv "$run.part" "$run"
+    # GeForce/workstation drivers live under XFree86; some Data Center drivers
+    # (L4, A100, H100, ...) are only published under tesla/.
+    for url in "https://download.nvidia.com/XFree86/Linux-x86_64/$ver/NVIDIA-Linux-x86_64-$ver.run" \
+               "https://us.download.nvidia.com/tesla/$ver/NVIDIA-Linux-x86_64-$ver.run"; do
+        if curl -fL --retry 3 -o "$run.part" "$url"; then
+            mv "$run.part" "$run"
+            break
+        fi
+    done
+    [[ -s "$run" ]] || { echo "[nvidia] ERROR: driver $ver not found on download.nvidia.com (vGPU/GRID guest drivers can't be downloaded)"; exit 1; }
 fi
 
 echo "[nvidia] installing userspace driver $ver (with 32-bit libs)"

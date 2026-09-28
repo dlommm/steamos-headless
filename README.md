@@ -22,11 +22,11 @@ docker pull registry.ohhcloud.com/dlomm/arch-steam-headless:latest
 
 | Platform | Guide | Template |
 |---|---|---|
-| Ubuntu, Debian, Fedora, Arch, any Linux | [docs/install/linux.md](docs/install/linux.md) | [deploy/compose.yaml](deploy/compose.yaml) |
+| Ubuntu, Debian, Fedora, Arch, any Linux | [docs/install/linux.md](docs/install/linux.md) | [deploy/linux/compose.yaml](deploy/linux/compose.yaml) |
 | TrueNAS SCALE 24.10+ | [docs/install/truenas.md](docs/install/truenas.md) | [deploy/truenas/compose.yaml](deploy/truenas/compose.yaml) |
-| Unraid | [docs/install/unraid.md](docs/install/unraid.md) | [deploy/unraid/steamos-headless.xml](deploy/unraid/steamos-headless.xml) |
+| Unraid | [docs/install/unraid.md](docs/install/unraid.md) | [deploy/unraid/steamos-headless.xml](deploy/unraid/steamos-headless.xml) or [compose.yaml](deploy/unraid/compose.yaml) |
 | Proxmox VE | [docs/install/proxmox.md](docs/install/proxmox.md) | VM → Linux guide |
-| Portainer / Dockge | Paste [deploy/compose.yaml](deploy/compose.yaml) as a stack | |
+| Portainer / Dockge | Paste [deploy/linux/compose.yaml](deploy/linux/compose.yaml) as a stack | |
 
 Every platform needs the same three things on the host:
 
@@ -73,6 +73,7 @@ Use the `steamos-3.8` tag to stay on a specific series.
 | Variable | Default | |
 |---|---|---|
 | `GPU_VENDOR` | `auto` | `nvidia` / `amd` to choose on hosts with both GPUs |
+| `NVIDIA_GPU` | all | Use only one NVIDIA card: index (`1`, as in `nvidia-smi`) or PCI address. Leaves the others free for AI/CUDA containers |
 | `RENDER_NODE` | auto | Force a device, e.g. `/dev/dri/renderD129` |
 | `STEAMOS_RESOLUTION` / `STEAMOS_REFRESH` | `1920x1080` / `60` | Size at boot, before any client connects |
 | `SUNSHINE_USER` / `SUNSHINE_PASS` | `admin` / empty | Sets the web UI login at start if a password is given |

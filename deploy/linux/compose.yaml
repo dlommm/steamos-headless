@@ -1,5 +1,6 @@
-# Unraid, Compose Manager plugin: Docker > Add New Stack > paste this.
-# (Or use the steamos-headless.xml template instead.) See docs/install/unraid.md
+# Pull-only template (no build section) for Portainer stacks, Dockge,
+# Unraid Compose Manager, and plain `docker compose`. Edit the paths marked
+# CHANGE ME. See docs/install/ for per-platform notes.
 
 services:
   steamos:
@@ -23,7 +24,7 @@ services:
     volumes:
       - /dev/input:/dev/input
       - /run/udev:/run/udev:ro
-      - /mnt/cache/appdata/steamos:/home/deck   # Steam + config on the cache pool
-      # Optional: game library on the array, added to Steam automatically.
-      # - /mnt/user/games:/games
-      - /mnt/cache/appdata/steamos-nvidia-cache:/var/cache/nvidia
+      - /srv/steamos/home:/home/deck            # CHANGE ME: Steam + config (NVMe/SSD)
+      # Optional: game library on a big (HDD) drive, added to Steam automatically.
+      # - /mnt/hdd/games:/games                 # CHANGE ME
+      - /srv/steamos/nvidia-cache:/var/cache/nvidia  # CHANGE ME: NVIDIA driver cache

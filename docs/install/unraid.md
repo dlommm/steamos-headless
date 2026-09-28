@@ -53,8 +53,8 @@ Apply.
 **Option B: Compose Manager plugin**
 
 Apps → install **Docker Compose Manager** → Docker → Add New Stack → paste
-[`deploy/compose.yaml`](../../deploy/compose.yaml) and change the paths to e.g.
-`/mnt/cache/appdata/steamos`.
+[`deploy/unraid/compose.yaml`](../../deploy/unraid/compose.yaml) (already set up with Unraid
+paths).
 
 ## Storage
 
