@@ -65,8 +65,10 @@ exec /usr/bin/gamescope -W $W -H $H -w $W -h $H -r $R -f "\${args[@]}"
 EOF
     chmod 755 "$bin/gamescope"
 
+    # gamescope-session execs gamescope, so this pid is gamescope's.
     PATH="$bin:$PATH" /usr/lib/steamos/gamescope-session >>"$log" 2>&1 </dev/null &
     gs=$!
+    echo "$gs" > "$state/gamescope.pid"
     for _ in $(seq 150); do
         [[ -s "$envfile" ]] && break
         kill -0 "$gs" 2>/dev/null || { wait "$gs"; return; }
@@ -107,7 +109,7 @@ EOF
     pkill -u deck -x ibus-daemon 2>/dev/null
     kill "${pids[@]}" 2>/dev/null
     wait "${pids[@]}" 2>/dev/null
-    rm -f "$envfile"
+    rm -f "$envfile" "$state/gamescope.pid"
 }
 
 # Desktop Mode: SteamOS's Plasma (steamdeck-kde-presets supplies the look,
@@ -168,7 +170,11 @@ end_session() {
                 timeout 30 steam -shutdown >/dev/null 2>&1 || true
                 for _ in $(seq 30); do pgrep -u deck -x steam >/dev/null || break; sleep 1; done
             fi
-            pkill -u deck -x gamescope 2>/dev/null
+            # Steam isn't gamescope's child here, so gamescope stays up after
+            # it; stop it by pid (it renames itself "gamescope-wl").
+            local gs
+            gs=$(cat "$state/gamescope.pid" 2>/dev/null)
+            [[ -n "$gs" ]] && kill "$gs" 2>/dev/null
             ;;
     esac
     return 0

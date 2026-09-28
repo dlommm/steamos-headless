@@ -413,9 +413,9 @@ start_sunshine() {
 stop_session() {
     # The manager (sudo's child) ends the session cleanly on TERM.
     pkill -TERM -u deck -f steamos-session-manager 2>/dev/null || true
-    for _ in $(seq 40); do pgrep -u deck -x steam >/dev/null || pgrep -u deck -x gamescope >/dev/null \
+    for _ in $(seq 40); do pgrep -u deck -x steam >/dev/null || pgrep -u deck -f '^/usr/bin/gamescope ' >/dev/null \
         || pgrep -u deck -x kwin_wayland >/dev/null || break; sleep 0.5; done
-    pkill -u deck -x gamescope 2>/dev/null || true
+    pkill -u deck -f '^/usr/bin/gamescope ' 2>/dev/null || true
     pkill -u deck -x steam 2>/dev/null || true
     pkill -u deck -x kwin_wayland 2>/dev/null || true
 }
