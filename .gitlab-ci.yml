@@ -44,10 +44,11 @@ build:
       docker build --pull --no-cache \
         --build-arg STEAMOS_VERSION="$STEAMOS_VERSION" \
         --build-arg SUNSHINE_VERSION="$SUNSHINE_VERSION" \
+        --build-arg IMAGE_VERSION="$VERSION" \
         -t "$CI_REGISTRY_IMAGE:$VERSION" .
     - docker run --rm --entrypoint cat "$CI_REGISTRY_IMAGE:$VERSION" /etc/steamos-docker-release | tee release.txt
     # Component versions → REL_* variables for the release job.
-    - sed -E 's/^([A-Z_]+)=/REL_\1=/' release.txt | grep -v '^REL_SUNSHINE_URL=' > build.env
+    - sed -E 's/^([A-Z_]+)=/REL_\1=/' release.txt | grep -vE '^REL_(SUNSHINE_URL|IMAGE_VERSION)=' > build.env
     - echo "VERSION=$VERSION" >> build.env
     - . ./build.env
     - |

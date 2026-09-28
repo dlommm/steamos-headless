@@ -55,6 +55,7 @@ RUN set -eux; \
 # ---------------------------------------------------------------------------
 FROM scratch
 ARG SUNSHINE_VERSION
+ARG IMAGE_VERSION=dev
 COPY --from=bootstrap /rootfs/ /
 
 RUN set -eux; \
@@ -96,6 +97,7 @@ RUN set -eux; \
 
 # `deck` (uid 1000) is the default user on real SteamOS.
 RUN set -eux; \
+    echo "IMAGE_VERSION=${IMAGE_VERSION}" >> /etc/steamos-docker-release; \
     useradd -m -u 1000 -G video,input,audio,wheel -s /bin/bash deck; \
     echo 'deck ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/deck; \
     mkdir -p /run/user/1000 && chown deck:deck /run/user/1000 && chmod 700 /run/user/1000
