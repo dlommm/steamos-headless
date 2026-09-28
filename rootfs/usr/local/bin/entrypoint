@@ -7,34 +7,81 @@ set -euo pipefail
 log() { echo "[steamos] $*"; }
 as_deck() { sudo -u deck -E -H "$@"; }
 
-# --- GPU -------------------------------------------------------------------
-if [[ "${GPU_VENDOR}" == "nvidia" ]]; then
-    /usr/local/bin/nvidia-userspace-install
-    want_driver=nvidia
-else
-    want_driver=amdgpu
+# --- Resources -------------------------------------------------------------
+# Nothing in this image limits CPU or RAM; report what the container actually
+# got so a cap set elsewhere (compose, Docker daemon, LXC, NAS UI) is obvious.
+cpus=$(nproc)
+mem_gib=$(awk '/^MemTotal/ {printf "%.0f", $2/1048576}' /proc/meminfo)
+log "resources: ${cpus} CPU threads, ${mem_gib} GiB RAM visible"
+cg_cpu=$(cat /sys/fs/cgroup/cpu.max 2>/dev/null || echo max)
+cg_mem=$(cat /sys/fs/cgroup/memory.max 2>/dev/null || echo max)
+if [[ "${cg_cpu%% *}" != "max" ]]; then
+    log "WARNING: CPU is capped by cgroup (cpu.max=${cg_cpu}); remove cpus/cpu limits to use every core"
+fi
+if [[ "$cg_mem" != "max" ]]; then
+    log "WARNING: RAM is capped by cgroup at $((cg_mem / 1073741824)) GiB; remove mem_limit to use all memory"
 fi
 
-# Pick the render node that belongs to the right vendor (hosts can have an
-# iGPU too). RENDER_NODE overrides.
-if [[ -z "${RENDER_NODE:-}" ]]; then
+# --- GPU -------------------------------------------------------------------
+# One image serves both vendors. GPU_VENDOR=auto picks NVIDIA when the host
+# has the NVIDIA driver loaded, otherwise AMD; set nvidia/amd to override on
+# multi-GPU hosts. RENDER_NODE (e.g. /dev/dri/renderD129) overrides the device.
+
+# Prints the first render node whose kernel driver is $1.
+render_node_for() {
+    local node
     for node in /sys/class/drm/renderD*; do
         [[ -e "$node/device/driver" ]] || continue
-        if [[ "$(basename "$(readlink -f "$node/device/driver")")" == "$want_driver" ]]; then
-            RENDER_NODE="/dev/dri/$(basename "$node")"
-            break
+        if [[ "$(basename "$(readlink -f "$node/device/driver")")" == "$1" ]]; then
+            echo "/dev/dri/$(basename "$node")"
+            return 0
         fi
     done
+    return 1
+}
+
+GPU_VENDOR=${GPU_VENDOR:-auto}
+if [[ "$GPU_VENDOR" == "auto" ]]; then
+    if [[ -r /proc/driver/nvidia/version ]]; then
+        GPU_VENDOR=nvidia
+    elif render_node_for amdgpu >/dev/null; then
+        GPU_VENDOR=amd
+    else
+        GPU_VENDOR=none
+    fi
 fi
+
+case "$GPU_VENDOR" in
+    nvidia)
+        /usr/local/bin/nvidia-userspace-install
+        RENDER_NODE=${RENDER_NODE:-$(render_node_for nvidia || true)}
+        [[ -n "$RENDER_NODE" ]] || log "ERROR: NVIDIA driver loaded but no render node; enable nvidia-drm.modeset=1 on the host"
+        export GBM_BACKEND=nvidia-drm __GLX_VENDOR_LIBRARY_NAME=nvidia \
+               WLR_RENDERER=vulkan WLR_NO_HARDWARE_CURSORS=1
+        SUNSHINE_ENCODER=nvenc
+        ;;
+    amd)
+        RENDER_NODE=${RENDER_NODE:-$(render_node_for amdgpu || true)}
+        export LIBVA_DRIVER_NAME=radeonsi
+        SUNSHINE_ENCODER=vaapi
+        ;;
+    none) ;;
+    *)
+        log "ERROR: GPU_VENDOR must be auto, nvidia or amd (got '$GPU_VENDOR')"
+        exit 1
+        ;;
+esac
+
 if [[ -z "${RENDER_NODE:-}" || ! -e "${RENDER_NODE}" ]]; then
-    log "ERROR: no ${want_driver} render node found in /dev/dri. Is the GPU passed through?"
+    log "ERROR: no usable AMD or NVIDIA GPU found in /dev/dri. Is the GPU passed through?"
     [[ "${ALLOW_NO_GPU:-0}" == "1" ]] || exit 1
-    log "ALLOW_NO_GPU=1: continuing with software rendering"
+    log "ALLOW_NO_GPU=1: continuing with software rendering and encoding"
     export WLR_RENDERER=pixman
     RENDER_NODE=""
+    SUNSHINE_ENCODER=software
 fi
-export RENDER_NODE
-log "GPU: ${GPU_VENDOR} render node: ${RENDER_NODE:-none}"
+export GPU_VENDOR RENDER_NODE SUNSHINE_ENCODER
+log "GPU: ${GPU_VENDOR} render node: ${RENDER_NODE:-none} encoder: ${SUNSHINE_ENCODER}"
 
 # Let deck use whatever groups own the passed-through device nodes.
 for dev in /dev/dri/* /dev/uinput /dev/input/event* /dev/nvidia*; do
@@ -54,11 +101,31 @@ mkdir -p /run/dbus
 rm -f /run/dbus/pid
 dbus-daemon --system --fork
 
-# mDNS so Moonlight finds the host automatically. Prefer the host's Avahi
-# (mount /run/avahi-daemon); only run our own if the host has none, since two
-# responders on one host network conflict.
-if [[ ! -S /run/avahi-daemon/socket ]]; then
-    avahi-daemon --daemonize --no-drop-root --no-chroot || log "WARNING: avahi-daemon failed; add the host manually in Moonlight"
+# mDNS so Moonlight finds the host automatically. Sunshine publishes through
+# Avahi on the container's own D-Bus, so Avahi runs here even if the host has
+# one too (both answering on the host network is fine). AVAHI=0 disables it.
+if [[ "${AVAHI:-1}" == "1" ]]; then
+    mkdir -p /run/avahi-daemon
+    # Only the LAN interface: on the host network Avahi would also join Docker
+    # bridges/veths, hear its own announcements and loop on name conflicts.
+    mdns_if=${MDNS_INTERFACE:-$(ip route show default | awk '{print $5; exit}')}
+    # With host networking the container shares the host's IPs and hostname.
+    # If the host already runs an mDNS responder (UDP 5353 is bound), let it
+    # own the hostname/address records and only publish Sunshine's service;
+    # publishing them twice makes both responders loop on name conflicts.
+    publish_addresses=yes
+    if awk 'NR>1 && $2 ~ /:14E9$/ {found=1} END {exit !found}' /proc/net/udp /proc/net/udp6 2>/dev/null; then
+        publish_addresses=no
+    fi
+    sed -e "s/^\[server\]/[server]\nallow-interfaces=${mdns_if}/" \
+        -e "s/^publish-addresses=.*/publish-addresses=${publish_addresses}/" \
+        /etc/steamos-docker/avahi-daemon.conf > /run/avahi-daemon/avahi-daemon.conf
+    log "mDNS on ${mdns_if:-all interfaces} as $(cat /proc/sys/kernel/hostname).local (host responder present: $([[ $publish_addresses == no ]] && echo yes || echo no))"
+    avahi-daemon -f /run/avahi-daemon/avahi-daemon.conf --no-drop-root --no-chroot --no-rlimits \
+        >/var/log/avahi.log 2>&1 &
+    sleep 1
+    kill -0 $! 2>/dev/null \
+        || log "WARNING: avahi-daemon failed (see /var/log/avahi.log); add the host manually in Moonlight"
 fi
 
 # seatd hands sway access to input devices without a real VT/logind.
@@ -105,7 +172,17 @@ SUNSHINE_CLIENT_WIDTH=$W SUNSHINE_CLIENT_HEIGHT=$H SUNSHINE_CLIENT_FPS=$STEAMOS_
     as_deck /usr/local/bin/steamos-session || log "WARNING: initial Steam launch failed; see ~/.local/state/steamos-session.log"
 
 as_deck /usr/local/bin/sunshine-setup
-as_deck sunshine /home/deck/.config/sunshine/sunshine.conf &
+# The encoder follows whatever GPU was detected this boot, unless one was
+# picked explicitly in the web UI (saved to sunshine.conf).
+sunshine_conf=/home/deck/.config/sunshine/sunshine.conf
+sunshine_args=()
+if ! grep -qE '^\s*encoder\s*=' "$sunshine_conf"; then
+    sunshine_args+=("encoder=${SUNSHINE_ENCODER}")
+    if [[ "$SUNSHINE_ENCODER" == "vaapi" ]]; then
+        sunshine_args+=("adapter_name=${RENDER_NODE}")
+    fi
+fi
+as_deck sunshine "$sunshine_conf" "${sunshine_args[@]}" &
 SUNSHINE_PID=$!
 log "Sunshine web UI: https://<host-ip>:47990"
 

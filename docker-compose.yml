@@ -1,72 +1,51 @@
-# Pick the one matching your GPU. Either use the images GitLab CI builds
-# (set IMAGE_REPO in .env, then `docker compose --profile amd pull`), or build locally:
-#   docker compose --profile amd up -d --build
-#   docker compose --profile nvidia up -d --build
+# One image for AMD and NVIDIA: the GPU is detected at start, and on NVIDIA
+# the driver matching the host is loaded automatically.
 #
-# Update SteamOS + Sunshine to the newest releases:
-#   docker compose --profile amd build --pull --no-cache && docker compose --profile amd up -d
-
-x-steamos: &steamos
-  restart: unless-stopped
-  # Host networking: Moonlight discovery (mDNS) and Sunshine's port range just work.
-  network_mode: host
-  # Needed for input (uinput/libinput via seatd), GPU access, and Steam's
-  # bubblewrap sandbox (pressure-vessel). See README "Security".
-  privileged: true
-  shm_size: 2gb
-  ulimits:
-    nofile: { soft: 524288, hard: 524288 }
-  environment:
-    STEAMOS_RESOLUTION: ${STEAMOS_RESOLUTION:-1920x1080}
-    STEAMOS_REFRESH: ${STEAMOS_REFRESH:-60}
-    SUNSHINE_USER: ${SUNSHINE_USER:-admin}
-    SUNSHINE_PASS: ${SUNSHINE_PASS:-}
-    TZ: ${TZ:-UTC}
-
-# Each service lists its volumes in full (YAML merge replaces lists).
-# /dev/input + /run/udev: Sunshine's virtual controllers/keyboard/mouse are
-# created on the host kernel, so the container needs the host's input nodes
-# and udev database to see them.
+#   docker compose pull && docker compose up -d     # prebuilt image from GitLab
+#   docker compose up -d --build                    # or build locally
 
 services:
-  steamos-amd:
-    <<: *steamos
-    profiles: [amd]
-    container_name: steamos-amd
-    hostname: steamos-amd
-    image: ${IMAGE_REPO:-steamos-docker}:amd
+  steamos:
+    image: ${IMAGE_REPO:-registry.ohhcloud.com/dlomm/arch-steam-headless}:${IMAGE_TAG:-latest}
     build:
       context: .
-      target: amd
       args:
         STEAMOS_VERSION: ${STEAMOS_VERSION:-latest}
         SUNSHINE_VERSION: ${SUNSHINE_VERSION:-latest}
+    container_name: steamos
+    # No `hostname:`. Under host networking the container keeps the host's
+    # hostname, which Moonlight discovery (mDNS) relies on.
+    restart: unless-stopped
+    # Host networking: Moonlight discovery (mDNS) and Sunshine's port range just work.
+    network_mode: host
+    # Needed for input (uinput/libinput via seatd), GPU access, and Steam's
+    # bubblewrap sandbox (pressure-vessel). See README "Security".
+    privileged: true
+    # No CPU/RAM limits: the container uses every core and all memory the host
+    # has. Host IPC gives /dev/shm (used by Proton/games) the host's full size
+    # instead of Docker's 64 MB default.
+    ipc: host
+    ulimits:
+      nofile: { soft: 524288, hard: 524288 }
+      memlock: { soft: -1, hard: -1 }
+    environment:
+      # auto (default), nvidia or amd. Only needed on hosts with both GPUs.
+      GPU_VENDOR: ${GPU_VENDOR:-auto}
+      STEAMOS_RESOLUTION: ${STEAMOS_RESOLUTION:-1920x1080}
+      STEAMOS_REFRESH: ${STEAMOS_REFRESH:-60}
+      SUNSHINE_USER: ${SUNSHINE_USER:-admin}
+      SUNSHINE_PASS: ${SUNSHINE_PASS:-}
+      TZ: ${TZ:-UTC}
     volumes:
+      # Sunshine's virtual controllers/keyboard/mouse are created on the host
+      # kernel, so the container needs the host's input nodes and udev database.
       - /dev/input:/dev/input
       - /run/udev:/run/udev:ro
-      - /run/avahi-daemon:/run/avahi-daemon
-      - steamos-amd-home:/home/deck
-
-  steamos-nvidia:
-    <<: *steamos
-    profiles: [nvidia]
-    container_name: steamos-nvidia
-    hostname: steamos-nvidia
-    image: ${IMAGE_REPO:-steamos-docker}:nvidia
-    build:
-      context: .
-      target: nvidia
-      args:
-        STEAMOS_VERSION: ${STEAMOS_VERSION:-latest}
-        SUNSHINE_VERSION: ${SUNSHINE_VERSION:-latest}
-    volumes:
-      - /dev/input:/dev/input
-      - /run/udev:/run/udev:ro
-      - /run/avahi-daemon:/run/avahi-daemon
-      - steamos-nvidia-home:/home/deck
+      # Steam library, Steam login, Sunshine config and pairings.
+      - steamos-home:/home/deck
+      # Cached NVIDIA driver installers (unused on AMD).
       - nvidia-cache:/var/cache/nvidia
 
 volumes:
-  steamos-amd-home:
-  steamos-nvidia-home:
+  steamos-home:
   nvidia-cache:

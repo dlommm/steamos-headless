@@ -1,0 +1,27 @@
+# Pull-only template (no build section) for Portainer stacks, Dockge,
+# Unraid Compose Manager, and plain `docker compose`. Edit the paths marked
+# CHANGE ME. See docs/install/ for per-platform notes.
+
+services:
+  steamos:
+    image: registry.ohhcloud.com/dlomm/arch-steam-headless:latest
+    container_name: steamos
+    restart: unless-stopped
+    network_mode: host
+    privileged: true
+    ipc: host
+    ulimits:
+      nofile: { soft: 524288, hard: 524288 }
+      memlock: { soft: -1, hard: -1 }
+    environment:
+      GPU_VENDOR: auto              # auto | nvidia | amd (only for hosts with both)
+      STEAMOS_RESOLUTION: 1920x1080 # before any client connects; clients override
+      STEAMOS_REFRESH: 60
+      SUNSHINE_USER: admin
+      SUNSHINE_PASS: ""             # set to preconfigure the web UI login
+      TZ: UTC
+    volumes:
+      - /dev/input:/dev/input
+      - /run/udev:/run/udev:ro
+      - /srv/steamos/home:/home/deck            # CHANGE ME: Steam library + config (fast disk)
+      - /srv/steamos/nvidia-cache:/var/cache/nvidia  # CHANGE ME: NVIDIA driver cache

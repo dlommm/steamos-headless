@@ -1,16 +1,85 @@
-# SteamOS in Docker (AMD + NVIDIA)
+# SteamOS Headless (Docker)
 
-Headless SteamOS for streaming with Moonlight. The images are built from **Valve's own
-SteamOS package repositories** (`steamdeck-packages.steamos.cloud`), the same packages the
-Steam Deck recovery image is made from. They run Steam Big Picture in gamescope and stream it
-with Sunshine.
+SteamOS in a container, streamed to any device with Moonlight. **One image for AMD and
+NVIDIA.** The GPU is detected when the container starts, and on NVIDIA the driver matching
+the host is loaded automatically.
 
-| Image | GPU stack |
+- **Real SteamOS packages.** Built from Valve's SteamOS repositories
+  (`steamdeck-packages.steamos.cloud`), the same packages the Steam Deck recovery image is
+  made from: Valve's Steam client, gamescope and Mesa.
+- **Headless.** Runs on a server with no monitor. Steam Big Picture runs in gamescope and
+  Sunshine streams it.
+- **Resolution follows the client.** A phone, a 4K TV and a 1440p/144 Hz PC each get their
+  own resolution and refresh rate when they connect.
+- **No limits.** No CPU, RAM or shared-memory caps. It uses every core and all memory the host
+  gives it. Games render and the stream is encoded on the GPU (NVENC / VA-API), not the CPU.
+
+```
+docker pull registry.ohhcloud.com/dlomm/arch-steam-headless:latest
+```
+
+## Install
+
+| Platform | Guide | Template |
+|---|---|---|
+| Ubuntu, Debian, Fedora, Arch, any Linux | [docs/install/linux.md](docs/install/linux.md) | [deploy/compose.yaml](deploy/compose.yaml) |
+| TrueNAS SCALE 24.10+ | [docs/install/truenas.md](docs/install/truenas.md) | [deploy/truenas/compose.yaml](deploy/truenas/compose.yaml) |
+| Unraid | [docs/install/unraid.md](docs/install/unraid.md) | [deploy/unraid/steamos-headless.xml](deploy/unraid/steamos-headless.xml) |
+| Proxmox VE | [docs/install/proxmox.md](docs/install/proxmox.md) | VM → Linux guide |
+| Portainer / Dockge | Paste [deploy/compose.yaml](deploy/compose.yaml) as a stack | |
+
+Every platform needs the same three things on the host:
+
+1. **A GPU driver:** `amdgpu` (built in everywhere) or the NVIDIA driver with
+   `nvidia-drm.modeset=1`. The NVIDIA Container Toolkit is **not** needed.
+2. **The udev rule** in [`host/60-steamos-docker.rules`](host/60-steamos-docker.rules) so
+   Moonlight controllers, keyboard and mouse work.
+3. **Docker**, running the container privileged with host networking (the templates do this).
+
+Then open `https://<server-ip>:47990`, create the Sunshine login, pair Moonlight, and launch
+**Steam Big Picture**.
+
+## Images, versions and releases
+
+GitLab CI builds the image and publishes it to
+`registry.ohhcloud.com/dlomm/arch-steam-headless` with these tags:
+
+| Tag | Meaning |
 |---|---|
-| `steamos-docker:amd` | Valve's SteamOS Mesa build (RADV Vulkan, radeonsi VA-API encoding) |
-| `steamos-docker:nvidia` | NVIDIA userspace driver matching the host, installed at start (NVENC encoding) |
+| `latest` | Newest build |
+| `2026.09.28.3` | A specific build (date + pipeline number). Never changes |
+| `steamos-3.9` | Newest build for that SteamOS release |
 
-## How it fits together
+Each build also creates a **GitLab Release** listing the exact SteamOS, Steam client,
+gamescope, Mesa and Sunshine versions inside.
+
+Builds always pull the newest SteamOS release and the newest Sunshine release. A weekly
+pipeline schedule (Build → Pipeline schedules) keeps `latest` current. To update a server:
+
+```bash
+docker compose pull && docker compose up -d
+docker exec steamos cat /etc/steamos-docker-release   # what's inside
+```
+
+SteamOS "latest" is the highest numbered release in Valve's repos, which can be a preview.
+Use the `steamos-3.8` tag to stay on a specific series.
+
+## Configuration
+
+| Variable | Default | |
+|---|---|---|
+| `GPU_VENDOR` | `auto` | `nvidia` / `amd` to choose on hosts with both GPUs |
+| `RENDER_NODE` | auto | Force a device, e.g. `/dev/dri/renderD129` |
+| `STEAMOS_RESOLUTION` / `STEAMOS_REFRESH` | `1920x1080` / `60` | Size at boot, before any client connects |
+| `SUNSHINE_USER` / `SUNSHINE_PASS` | `admin` / empty | Sets the web UI login at start if a password is given |
+| `STEAM_ARGS` | `-gamepadui -steamos3` | Add `-steamdeck` to make games treat it as a Deck |
+| `MDNS_INTERFACE` | default route | Network interface for Moonlight auto-discovery |
+| `AVAHI` | `1` | `0` disables auto-discovery (add the host by IP in Moonlight) |
+
+`/home/deck` holds the Steam library, Steam login, and Sunshine config and pairings. Put it on
+a fast SSD/NVMe.
+
+## How it works
 
 ```
 Moonlight ──► Sunshine ──(wlr-screencopy)──► sway (headless output, resized per client)
@@ -18,100 +87,45 @@ Moonlight ──► Sunshine ──(wlr-screencopy)──► sway (headless outp
                  └──(uinput)──► virtual pad/kbd/mouse ──► libinput (sway) + Steam
 ```
 
-- **Resolution follows the client.** When a device connects, the "Steam Big Picture" app
-  resizes the display to that device's resolution and refresh rate. If Steam is already
-  running at that size it isn't restarted, so reconnecting is instant. This is the Apollo
-  virtual-display feature, done on Linux with Sunshine.
-- **Steam starts at boot**, before anyone connects, so updates and login happen ahead of time.
-- Why not the kernel, Bazzite, or Apollo: a container uses the host's kernel. Bazzite images
-  are meant to boot bare metal. Apollo is Windows-only.
+At start the container:
 
-## Host requirements
+1. Reports the CPU threads and RAM it can see, and warns if something caps them.
+2. Detects the GPU. On NVIDIA it installs the userspace driver matching the host kernel module
+   (including the 32-bit libraries Steam needs), cached in `/var/cache/nvidia`.
+3. Starts D-Bus, Avahi (Moonlight discovery), PipeWire, and sway on a headless output.
+4. Starts Steam in gamescope right away, so updates and login happen before anyone connects.
+5. Starts Sunshine with the matching encoder: NVENC on NVIDIA, VA-API on AMD.
 
-Any Linux host with Docker and a GPU. Nothing else is installed on the host except:
+When a client launches **Steam Big Picture**, the display is resized to that client. Steam is
+only restarted if the resolution changed, so reconnecting from the same device is instant.
 
-1. **Udev rule for virtual input** (once):
-   ```bash
-   sudo cp host/60-steamos-docker.rules /etc/udev/rules.d/
-   sudo udevadm control --reload && sudo udevadm trigger
-   ```
-2. **NVIDIA only:** the proprietary or open NVIDIA kernel driver loaded, with DRM modesetting:
-   ```bash
-   cat /sys/module/nvidia_drm/parameters/modeset   # must print Y
-   # if not: add nvidia-drm.modeset=1 to the kernel command line and reboot
-   ```
-   The NVIDIA Container Toolkit is **not** required. The container downloads the userspace
-   driver that exactly matches the host's version from download.nvidia.com, including the
-   32-bit libraries Steam needs, and caches it in the `nvidia-cache` volume.
-3. **AMD only:** the in-kernel `amdgpu` driver (standard everywhere).
+**Why not Bazzite, the Deck recovery image, or Apollo?** A container uses the host's kernel.
+Bazzite images and the recovery image are whole bootable OSes (kernel, firmware, updater).
+Bazzite's NVIDIA variant also bundles a driver that must exactly match the host's.
+Apollo's virtual display is Windows-only. On Linux, Sunshine plus the per-client resize does
+the same job.
 
-## Run
-
-**Prebuilt images:** GitLab CI builds both images into this project's container registry
-(`:amd`, `:nvidia`, plus dated tags like `:amd-20260927`). Set `IMAGE_REPO` in `.env` to the
-registry path, then use `pull` instead of `--build`:
+## Build locally
 
 ```bash
-docker compose --profile amd pull && docker compose --profile amd up -d
+cp .env.example .env
+docker compose build            # STEAMOS_VERSION / SUNSHINE_VERSION from .env
+docker compose up -d
 ```
 
-**Build locally:**
-
-```bash
-cp .env.example .env          # optional: set SUNSHINE_PASS, versions, etc.
-docker compose --profile amd up -d --build       # AMD
-docker compose --profile nvidia up -d --build    # NVIDIA
-docker compose logs -f
-```
-
-1. Open `https://<host-ip>:47990` and log in (or create the Sunshine account).
-2. In Moonlight, add the host and enter the PIN in Sunshine's web UI → PIN.
-3. Launch **Steam Big Picture**. Log in to Steam once; it's saved in the home volume.
-
-## Versions and updating
-
-Both `STEAMOS_VERSION` and `SUNSHINE_VERSION` default to `latest`, resolved at **build time**:
-
-- SteamOS `latest` = the highest numbered release in Valve's repos (e.g. `3.9`). Valve
-  doesn't publish a "stable" pointer, so this can be a preview release. Set
-  `STEAMOS_VERSION=3.8` to pin.
-- Sunshine `latest` = the newest GitHub release.
-
-GitLab CI builds without the cache, so every pipeline picks up the newest releases. Add a
-weekly pipeline schedule (Build → Pipeline schedules) to stay current automatically, then
-`docker compose pull` on the host. Local builds cache steps, so to pull new versions:
-
-```bash
-docker compose --profile amd build --pull --no-cache && docker compose --profile amd up -d
-docker exec steamos-amd cat /etc/steamos-docker-release   # shows what was built
-```
-
-Steam itself updates on its own inside the container.
-
-## Configuration
-
-| Variable | Default | |
-|---|---|---|
-| `STEAMOS_RESOLUTION` / `STEAMOS_REFRESH` | `1920x1080` / `60` | Size at boot before any client connects |
-| `SUNSHINE_USER` / `SUNSHINE_PASS` | `admin` / empty | Sets the web UI login on start if a password is given |
-| `STEAM_ARGS` | `-gamepadui -steamos3` | Add `-steamdeck` to make games treat it as a Deck |
-| `RENDER_NODE` | auto | Force a GPU, e.g. `/dev/dri/renderD129` on multi-GPU hosts |
-
-Persistent data (Steam library, Steam login, Sunshine config and pairings) lives in the
-`steamos-<vendor>-home` volume at `/home/deck`. For a big library, bind-mount a disk instead,
-e.g. `- /mnt/games:/home/deck`.
+Docker caches build steps. `docker compose build --pull --no-cache` picks up new releases.
 
 ## Security
 
-The container runs `privileged` with host networking. It needs raw GPU and input devices,
-uinput to create virtual controllers, and user namespaces for Steam's pressure-vessel
-sandbox. Treat it like a game console on your LAN, not an isolated service. Sunshine's
-virtual input devices are created on the host kernel, so a desktop session on the host would
-also receive them. This is intended for dedicated or headless hosts.
+The container runs `privileged` with host networking and host IPC. It needs raw GPU and input
+devices, uinput to create virtual controllers, and user namespaces for Steam's pressure-vessel
+sandbox. Treat it like a game console on your LAN, not an isolated service. Sunshine's virtual
+input devices are created on the host kernel, so a desktop session on the host would also
+receive them. It's intended for dedicated or headless hosts.
 
 ## Limitations
 
 - Headless only. No output to a monitor attached to the host.
 - SteamOS system features do nothing in a container: OS updates, the power menu, switch to
-  desktop, and Deck hardware controls. The OS is updated by rebuilding the image.
-- Anti-cheat games that block Linux/Proton won't work, same as on a Steam Deck.
+  desktop, and Deck hardware controls. The OS is updated by pulling a newer image.
+- Games whose anti-cheat blocks Linux/Proton won't work, same as on a Steam Deck.

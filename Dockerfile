@@ -3,8 +3,8 @@
 # SteamOS userspace built from Valve's own package repositories, running
 # gamescope + Steam Big Picture headless and streamed with Sunshine.
 #
-#   docker build --target amd    -t steamos-docker:amd .
-#   docker build --target nvidia -t steamos-docker:nvidia .
+# One image for AMD and NVIDIA: the GPU is detected when the container starts.
+#   docker build -t steamos-docker .
 
 # "latest" = highest numbered SteamOS release in Valve's repos / newest
 # Sunshine GitHub release, resolved at build time. Pin e.g. 3.8 or
@@ -47,10 +47,11 @@ RUN set -eux; \
     rm -rf /rootfs/var/cache/pacman/pkg/*
 
 # ---------------------------------------------------------------------------
-# 2. Common SteamOS image: Steam, gamescope, Valve's Mesa, sway (headless
-#    capture surface for Sunshine), PipeWire, and Sunshine.
+# 2. SteamOS image: Steam, gamescope, Valve's Mesa (AMD), the NVIDIA GBM/EGL
+#    glue (the NVIDIA driver itself is installed at start to match the host),
+#    sway (headless capture surface for Sunshine), PipeWire, and Sunshine.
 # ---------------------------------------------------------------------------
-FROM scratch AS common
+FROM scratch
 ARG SUNSHINE_VERSION
 COPY --from=bootstrap /rootfs/ /
 
@@ -59,11 +60,14 @@ RUN set -eux; \
         steam-jupiter-stable gamescope \
         mesa lib32-mesa vulkan-radeon lib32-vulkan-radeon \
         vulkan-icd-loader lib32-vulkan-icd-loader \
+        libglvnd lib32-libglvnd egl-wayland egl-gbm \
         sway seatd xorg-xwayland \
         pipewire pipewire-pulse wireplumber lib32-pipewire \
         dbus avahi nss-mdns systemd-libs sudo which curl jq kmod libxcvt \
         ttf-liberation noto-fonts \
         mangohud lib32-mangohud gamemode lib32-gamemode; \
+    pacman -Q steam-jupiter-stable gamescope mesa vulkan-radeon \
+        | awk '{gsub(/-/,"_",$1); print toupper($1) "=" $2}' >> /etc/steamos-docker-release; \
     yes | pacman -Scc >/dev/null; \
     rm -rf /var/cache/pacman/pkg/*
 
@@ -79,6 +83,7 @@ RUN set -eux; \
     fi; \
     echo "Sunshine: $url"; \
     echo "SUNSHINE_URL=$url" >> /etc/steamos-docker-release; \
+    echo "SUNSHINE_VERSION=$(echo "$url" | sed -E 's|.*/download/v([^/]+)/.*|\1|')" >> /etc/steamos-docker-release; \
     curl -fsSL -o sunshine.AppImage "$url"; \
     chmod +x sunshine.AppImage; \
     ./sunshine.AppImage --appimage-extract >/dev/null; \
@@ -101,30 +106,8 @@ ENV XDG_RUNTIME_DIR=/run/user/1000 \
     STEAMOS_REFRESH=60 \
     STEAM_ARGS="-gamepadui -steamos3" \
     SUNSHINE_USER=admin \
-    SUNSHINE_PASS=""
+    SUNSHINE_PASS="" \
+    GPU_VENDOR=auto
 
 VOLUME ["/home/deck"]
 ENTRYPOINT ["/usr/local/bin/entrypoint"]
-
-# ---------------------------------------------------------------------------
-# 3a. AMD: Valve's Mesa (RADV + radeonsi VA-API) is already in `common`.
-# ---------------------------------------------------------------------------
-FROM common AS amd
-ENV GPU_VENDOR=amd \
-    SUNSHINE_ENCODER=vaapi \
-    LIBVA_DRIVER_NAME=radeonsi
-
-# ---------------------------------------------------------------------------
-# 3b. NVIDIA: the userspace driver must match the host kernel module exactly,
-#     so it's installed at container start from NVIDIA's official .run for
-#     whatever version the host is running (including 32-bit libs for Steam).
-# ---------------------------------------------------------------------------
-FROM common AS nvidia
-RUN pacman -S --noconfirm --needed libglvnd lib32-libglvnd egl-wayland egl-gbm \
-    && yes | pacman -Scc >/dev/null; rm -rf /var/cache/pacman/pkg/*
-ENV GPU_VENDOR=nvidia \
-    SUNSHINE_ENCODER=nvenc \
-    GBM_BACKEND=nvidia-drm \
-    __GLX_VENDOR_LIBRARY_NAME=nvidia \
-    WLR_RENDERER=vulkan \
-    WLR_NO_HARDWARE_CURSORS=1

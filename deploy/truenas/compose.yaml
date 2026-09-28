@@ -1,0 +1,30 @@
+# TrueNAS SCALE 24.10+ (Electric Eel and later): Apps > Discover Apps >
+# ⋮ > Install via YAML. Paste this, replacing "tank" with your pool.
+# Create the datasets first (Datasets > Add Dataset):
+#   tank/apps/steamos/home          Steam library + config
+#   tank/apps/steamos/nvidia-cache  NVIDIA driver cache
+# Full steps: docs/install/truenas.md
+
+services:
+  steamos:
+    image: registry.ohhcloud.com/dlomm/arch-steam-headless:latest
+    container_name: steamos
+    restart: unless-stopped
+    network_mode: host
+    privileged: true
+    ipc: host
+    ulimits:
+      nofile: { soft: 524288, hard: 524288 }
+      memlock: { soft: -1, hard: -1 }
+    environment:
+      GPU_VENDOR: auto
+      STEAMOS_RESOLUTION: 1920x1080
+      STEAMOS_REFRESH: 60
+      SUNSHINE_USER: admin
+      SUNSHINE_PASS: ""
+      TZ: UTC
+    volumes:
+      - /dev/input:/dev/input
+      - /run/udev:/run/udev:ro
+      - /mnt/tank/apps/steamos/home:/home/deck
+      - /mnt/tank/apps/steamos/nvidia-cache:/var/cache/nvidia

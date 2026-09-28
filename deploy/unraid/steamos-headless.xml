@@ -1,0 +1,33 @@
+<?xml version="1.0"?>
+<!--
+  Unraid Docker template. Copy to /boot/config/plugins/dockerMan/templates-user/
+  then Docker > Add Container > Template: steamos-headless.
+  Full steps: docs/install/unraid.md
+-->
+<Container version="2">
+  <Name>steamos-headless</Name>
+  <Repository>registry.ohhcloud.com/dlomm/arch-steam-headless:latest</Repository>
+  <Registry>https://gitlab.ohhcloud.com/dlomm/arch-steam-headless/container_registry</Registry>
+  <Network>host</Network>
+  <MyIP/>
+  <Shell>bash</Shell>
+  <Privileged>true</Privileged>
+  <Support>https://gitlab.ohhcloud.com/dlomm/arch-steam-headless</Support>
+  <Project>https://gitlab.ohhcloud.com/dlomm/arch-steam-headless</Project>
+  <Overview>SteamOS (built from Valve's package repos) running Steam Big Picture headless, streamed to Moonlight with Sunshine. One image for AMD and NVIDIA; the GPU is detected at start. Install the NVIDIA Driver plugin first on NVIDIA systems.</Overview>
+  <Category>GameServers: Tools:</Category>
+  <WebUI>https://[IP]:47990</WebUI>
+  <Icon>https://raw.githubusercontent.com/LizardByte/Sunshine/master/sunshine.png</Icon>
+  <ExtraParams>--ipc=host --ulimit nofile=524288:524288 --ulimit memlock=-1:-1</ExtraParams>
+  <PostArgs/>
+  <Config Name="Steam home" Target="/home/deck" Default="/mnt/cache/appdata/steamos" Mode="rw" Description="Steam library, login and Sunshine config. Use a pool/cache path (not /mnt/user) for game performance." Type="Path" Display="always" Required="true" Mask="false">/mnt/cache/appdata/steamos</Config>
+  <Config Name="NVIDIA driver cache" Target="/var/cache/nvidia" Default="/mnt/cache/appdata/steamos-nvidia-cache" Mode="rw" Description="Cached NVIDIA userspace driver (unused on AMD)." Type="Path" Display="advanced" Required="false" Mask="false">/mnt/cache/appdata/steamos-nvidia-cache</Config>
+  <Config Name="Input devices" Target="/dev/input" Default="/dev/input" Mode="rw" Description="Needed for Moonlight controllers, keyboard and mouse." Type="Path" Display="advanced" Required="true" Mask="false">/dev/input</Config>
+  <Config Name="udev database" Target="/run/udev" Default="/run/udev" Mode="ro" Description="Lets the container see Sunshine's virtual input devices." Type="Path" Display="advanced" Required="true" Mask="false">/run/udev</Config>
+  <Config Name="GPU vendor" Target="GPU_VENDOR" Default="auto|nvidia|amd" Mode="" Description="auto detects the GPU. Only set this on hosts with both AMD and NVIDIA GPUs." Type="Variable" Display="always" Required="true" Mask="false">auto</Config>
+  <Config Name="Sunshine user" Target="SUNSHINE_USER" Default="admin" Mode="" Description="Web UI login user." Type="Variable" Display="always" Required="false" Mask="false">admin</Config>
+  <Config Name="Sunshine password" Target="SUNSHINE_PASS" Default="" Mode="" Description="Web UI login password. Leave empty to create the account in the web UI." Type="Variable" Display="always" Required="false" Mask="true"/>
+  <Config Name="Start resolution" Target="STEAMOS_RESOLUTION" Default="1920x1080" Mode="" Description="Resolution before any client connects. Each Moonlight client switches to its own." Type="Variable" Display="advanced" Required="false" Mask="false">1920x1080</Config>
+  <Config Name="Start refresh rate" Target="STEAMOS_REFRESH" Default="60" Mode="" Description="Refresh rate before any client connects." Type="Variable" Display="advanced" Required="false" Mask="false">60</Config>
+  <Config Name="Timezone" Target="TZ" Default="UTC" Mode="" Description="" Type="Variable" Display="advanced" Required="false" Mask="false">UTC</Config>
+</Container>

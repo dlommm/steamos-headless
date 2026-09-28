@@ -8,11 +8,9 @@ mkdir -p "$cfg" /home/deck/.local/state
 
 if [[ ! -e "$cfg/sunshine.conf" ]]; then
     {
-        echo "sunshine_name = ${SUNSHINE_NAME:-SteamOS-${GPU_VENDOR}}"
+        echo "sunshine_name = ${SUNSHINE_NAME:-SteamOS}"
         echo "capture = wlr"
         echo "system_tray = disabled"
-        echo "encoder = ${SUNSHINE_ENCODER}"
-        [[ "${SUNSHINE_ENCODER}" == "vaapi" && -n "${RENDER_NODE:-}" ]] && echo "adapter_name = ${RENDER_NODE}"
         echo "file_apps = $cfg/apps.json"
         echo "origin_web_ui_allowed = lan"
     } > "$cfg/sunshine.conf"
