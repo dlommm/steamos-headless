@@ -181,3 +181,10 @@ SteamOS, Steam and the Steam Deck are trademarks of Valve Corporation. This proj
 affiliated with or endorsed by Valve. It installs Valve's packages from Valve's public
 repositories at build time. Streaming is by [Sunshine](https://github.com/LizardByte/Sunshine)
 and [Moonlight](https://moonlight-stream.org).
+
+## License
+
+The files in this repository are under the [MIT License](LICENSE). The image also contains
+software under its own licenses: SteamOS packages and the Steam client from Valve,
+Sunshine (GPL-3.0), the NVIDIA driver (installed at start, under NVIDIA's license) and the
+open-source components of SteamOS under theirs.

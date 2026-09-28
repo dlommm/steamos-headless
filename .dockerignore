@@ -5,3 +5,4 @@ deploy/
 host/
 docker-compose.yml
 .github/
+LICENSE
