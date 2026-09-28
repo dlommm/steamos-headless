@@ -1,12 +1,61 @@
 #!/bin/bash
 # Container stand-in for systemctl (there's no systemd here). Handles what
 # SteamOS's scripts ask of it: reboot/poweroff and restarting the display
-# manager act on the session; other units don't exist in the container.
+# manager act on the session. System units that other software installs in
+# /etc/systemd/system (Decky Loader's plugin_loader) are run by
+# steamos-docker-unit; enabled ones start with the container. Other units
+# don't exist in the container.
 set -uo pipefail
 args=()
-for a in "$@"; do [[ "$a" == -* ]] || args+=("$a"); done
+user=0 now=0
+for a in "$@"; do
+    case "$a" in
+        --user) user=1 ;;
+        --now)  now=1 ;;
+        -*) ;;
+        *) args+=("$a") ;;
+    esac
+done
 verb=${args[0]:-}
 unit=${args[1]:-}
+unitdir=/etc/systemd/system
+wants=$unitdir/multi-user.target.wants
+
+# A system unit installed here, and the unit's name without ".service".
+sysunit=""
+if (( ! user )) && [[ -n "$unit" && -f "$unitdir/${unit%.service}.service" ]]; then
+    sysunit=${unit%.service}
+    if [[ $(id -u) -ne 0 && "$verb" != is-* && "$verb" != status ]]; then
+        exec sudo -n "$0" "$@"
+    fi
+fi
+
+if [[ -n "$sysunit" ]]; then
+    case "$verb" in
+        start|restart|stop) exec steamos-docker-unit "$verb" "$sysunit" ;;
+        reload|try-restart|reload-or-restart|try-reload-or-restart)
+            steamos-docker-unit is-active "$sysunit" || [[ "$verb" == reload-or-restart ]] || exit 0
+            exec steamos-docker-unit restart "$sysunit" ;;
+        enable)
+            mkdir -p "$wants"
+            ln -sf "../$sysunit.service" "$wants/$sysunit.service"
+            (( now )) && exec steamos-docker-unit start "$sysunit"
+            exit 0 ;;
+        disable)
+            rm -f "$wants/$sysunit.service"
+            (( now )) && exec steamos-docker-unit stop "$sysunit"
+            exit 0 ;;
+        is-active|status)
+            if steamos-docker-unit is-active "$sysunit"; then echo active; exit 0; fi
+            echo inactive; exit 3 ;;
+        is-enabled)
+            if [[ -e "$wants/$sysunit.service" ]]; then echo enabled; exit 0; fi
+            echo disabled; exit 1 ;;
+        is-failed) echo inactive; exit 1 ;;
+        *) exit 0 ;;
+    esac
+fi
+
 case "$verb" in
     reboot|kexec|soft-reboot) exec steamos-session-control restart ;;
     poweroff|halt|suspend|hibernate|hybrid-sleep)

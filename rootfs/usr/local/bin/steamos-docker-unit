@@ -1,0 +1,126 @@
+#!/bin/bash
+# Runs the simple services that other software installs as systemd system
+# units, for the container's systemctl (there's no systemd here). Decky
+# Loader's plugin_loader.service is the one that matters: its installer and
+# its own updater manage it with systemctl.
+#   steamos-docker-unit start|stop|restart|is-active <unit>
+# Covers what such units use: ExecStart, User, WorkingDirectory, Environment,
+# EnvironmentFile, Restart, RestartSec, KillSignal, TimeoutStopSec. Each unit
+# runs under a small supervisor; its output goes to /var/log/steamos-units.
+set -uo pipefail
+
+unitdir=/etc/systemd/system
+run=/run/steamos-units
+logdir=/var/log/steamos-units
+
+cmd=${1:-}
+name=${2:-}
+name=${name%.service}
+file=$unitdir/$name.service
+if [[ -z "$cmd" || -z "$name" ]]; then
+    echo "usage: $0 start|stop|restart|is-active <unit>" >&2; exit 2
+fi
+mkdir -p "$run" "$logdir"
+sup=$run/$name.pid
+main=$run/$name.main
+
+active() { local p; p=$(cat "$sup" 2>/dev/null) && [[ -n "$p" ]] && kill -0 "$p" 2>/dev/null; }
+
+# The [Service] keys, last one wins (Environment accumulates).
+declare -A svc=()
+envs=()
+parse() {
+    local line key val section=""
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        line=${line%$'\r'}
+        [[ "$line" =~ ^[[:space:]]*([#\;]|$) ]] && continue
+        if [[ "$line" =~ ^\[(.*)\]$ ]]; then section=${BASH_REMATCH[1]}; continue; fi
+        [[ "$section" == Service && "$line" == *=* ]] || continue
+        key=${line%%=*}; val=${line#*=}
+        key=${key//[[:space:]]/}
+        case "$key" in
+            Environment) eval "envs+=($val)" ;;
+            EnvironmentFile)
+                val=${val#-}
+                [[ -r "$val" ]] && while IFS= read -r l; do
+                    [[ "$l" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]] && envs+=("$l")
+                done <"$val" ;;
+            *) svc[$key]=$val ;;
+        esac
+    done <"$file"
+}
+
+supervise() {
+    echo $$ >"$sup"
+    parse
+    local exec=${svc[ExecStart]:-} user=${svc[User]:-root} wd=${svc[WorkingDirectory]:-/}
+    local restart=${svc[Restart]:-no} delay=${svc[RestartSec]:-1} argv=() rc
+    exec=${exec#[-@+!]}
+    eval "argv=($exec)"
+    [[ ${#argv[@]} -gt 0 ]] || { echo "$name: no ExecStart" >&2; exit 1; }
+    delay=${delay%s}
+    rm -f "$run/$name.stopping"
+    while true; do
+        echo "[$(date '+%F %T')] starting ${argv[*]}"
+        (
+            cd "${wd#-}" 2>/dev/null || cd /
+            if [[ "$user" == root || "$user" == 0 ]]; then
+                exec env "${envs[@]}" "${argv[@]}"
+            fi
+            exec runuser -u "$user" -- env HOME="$(getent passwd "$user" | cut -d: -f6)" "${envs[@]}" "${argv[@]}"
+        ) &
+        echo $! >"$main"
+        wait $!; rc=$?
+        echo "[$(date '+%F %T')] exited with status $rc"
+        [[ -e "$run/$name.stopping" ]] && break
+        case "$restart" in
+            always) ;;
+            on-failure|on-abnormal|on-abort) (( rc != 0 )) || break ;;
+            *) break ;;
+        esac
+        sleep "$delay"
+    done
+    rm -f "$sup" "$main" "$run/$name.stopping"
+}
+
+start() {
+    active && return 0
+    [[ -f "$file" ]] || { echo "Unit $name.service not found." >&2; return 5; }
+    # Detached, so it outlives whoever asked (Decky restarts itself this way),
+    # and without the job lock.
+    setsid "$0" _supervise "$name" >>"$logdir/$name.log" 2>&1 </dev/null 9>&- &
+    echo $! >"$sup"
+}
+
+stop() {
+    active || return 0
+    parse
+    local sig=${svc[KillSignal]:-SIGTERM} timeout=${svc[TimeoutStopSec]:-10} m
+    timeout=${timeout%s}
+    touch "$run/$name.stopping"
+    m=$(cat "$main" 2>/dev/null)
+    # Only the main process, like KillMode=process: a systemctl it started
+    # (to restart itself) has to survive.
+    [[ -n "$m" ]] && kill -s "${sig#SIG}" "$m" 2>/dev/null
+    for _ in $(seq $((timeout * 4))); do active || return 0; sleep 0.25; done
+    [[ -n "$m" ]] && kill -KILL "$m" 2>/dev/null
+    for _ in $(seq 20); do active || return 0; sleep 0.25; done
+    kill -KILL "$(cat "$sup" 2>/dev/null)" 2>/dev/null
+    rm -f "$sup" "$main" "$run/$name.stopping"
+}
+
+# One job at a time per unit, like systemd's job queue: a stop can't slip
+# in between a restart's stop and start.
+if [[ "$cmd" == start || "$cmd" == stop || "$cmd" == restart ]]; then
+    exec 9>"$run/$name.lock"
+    flock 9
+fi
+
+case "$cmd" in
+    _supervise) supervise ;;
+    start)      start ;;
+    stop)       stop ;;
+    restart)    stop; start ;;
+    is-active)  active ;;
+    *) echo "usage: $0 start|stop|restart|is-active <unit>" >&2; exit 2 ;;
+esac

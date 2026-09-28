@@ -1,0 +1,124 @@
+#!/bin/bash
+# Installs the popular Steam Deck add-ons picked in PRELOAD_APPS (comma or
+# space separated), the way a Deck user would, with each project's own
+# installer. Runs as root at every start, before Steam; whatever is already
+# installed is left alone (each updates itself from then on).
+#   decky    Decky Loader: its official installer (install_release.sh),
+#            whose plugin_loader service the container's systemctl runs
+#   emudeck  EmuDeck: its official "Install EmuDeck" icon on the desktop;
+#            the setup is interactive, so it's run from Desktop Mode
+#   heroic   Heroic Games Launcher (Epic, GOG, Amazon) from Flathub, as
+#            Discover installs it, and added to Steam for Gaming Mode
+# An installed Decky is started on every boot whether or not it's listed.
+set -uo pipefail
+
+home=/home/deck
+homebrew=$home/homebrew
+state=$home/.config/steamos-docker/preload
+log() { echo "[preload] $*"; }
+as_deck() { sudo -u deck -H "$@"; }
+
+want() { [[ ",${PRELOAD_APPS// /,}," == *",$1,"* ]]; }
+
+for app in ${PRELOAD_APPS//,/ }; do
+    case "$app" in
+        decky|emudeck|heroic) ;;
+        *) log "WARNING: unknown app '$app' in PRELOAD_APPS (known: decky, emudeck, heroic)" ;;
+    esac
+done
+as_deck mkdir -p "$state"
+
+# --- Decky Loader -------------------------------------------------------------
+decky() {
+    local unit=/etc/systemd/system/plugin_loader.service f
+    if [[ ! -x "$homebrew/services/PluginLoader" ]] && want decky; then
+        log "installing Decky Loader (official installer)"
+        f=$(mktemp)
+        if curl -fsSL --retry 3 -o "$f" \
+                https://github.com/SteamDeckHomebrew/decky-installer/releases/latest/download/install_release.sh \
+            && SUDO_USER=deck timeout 600 bash "$f" >/var/log/decky-install.log 2>&1 \
+            && [[ -x "$homebrew/services/PluginLoader" ]]; then
+            log "Decky Loader $(cat "$homebrew/services/.loader.version" 2>/dev/null) installed"
+        else
+            log "WARNING: Decky Loader install failed (see /var/log/decky-install.log)"
+        fi
+        rm -f "$f"
+    fi
+    [[ -x "$homebrew/services/PluginLoader" ]] || return 0
+
+    # The service lives in /etc, which a new container (image update) starts
+    # without. Decky's installer keeps a copy of it in ~/homebrew.
+    if [[ ! -f "$unit" ]]; then
+        for f in "$homebrew/services/.systemd/plugin_loader-release.service" \
+                 "$homebrew/services/.systemd/plugin_loader-backup.service"; do
+            [[ -f "$f" ]] && { cp "$f" "$unit"; break; }
+        done
+        [[ -f "$unit" ]] && systemctl enable plugin_loader
+    fi
+    # Decky talks to Steam through CEF remote debugging, which Steam turns
+    # on at startup when this file exists (the installer creates it, but
+    # only if Steam was already installed).
+    as_deck mkdir -p "$home/.local/share/Steam"
+    as_deck touch "$home/.local/share/Steam/.cef-enable-remote-debugging"
+}
+
+# --- EmuDeck ------------------------------------------------------------------
+emudeck() {
+    want emudeck || return 0
+    [[ -e "$home/Applications/EmuDeck.AppImage" || -e "$home/Desktop/EmuDeck.desktop" ]] && return 0
+    log "adding EmuDeck's installer to the desktop (run it from Desktop Mode)"
+    as_deck mkdir -p "$home/Desktop"
+    if ! as_deck curl -fsSL --retry 3 -o "$home/Desktop/EmuDeck.desktop" https://www.emudeck.com/EmuDeck.desktop; then
+        # The same launcher EmuDeck's website hands out.
+        as_deck tee "$home/Desktop/EmuDeck.desktop" >/dev/null <<'EOF'
+[Desktop Entry]
+Exec=sh -c 'curl -L https://raw.githubusercontent.com/dragoonDorise/EmuDeck/main/install.sh | bash'
+Name=Install EmuDeck
+StartupNotify=false
+Terminal=true
+Type=Application
+EOF
+    fi
+    as_deck chmod +x "$home/Desktop/EmuDeck.desktop"
+}
+
+# --- Heroic Games Launcher ----------------------------------------------------
+heroic_id=com.heroicgameslauncher.hgl
+heroic() {
+    want heroic || return 0
+    if ! as_deck flatpak info --user "$heroic_id" >/dev/null 2>&1; then
+        log "installing Heroic Games Launcher from Flathub (in the background)"
+        as_deck flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo \
+            && as_deck flatpak install --user --noninteractive -y flathub "$heroic_id" >/var/log/heroic-install.log 2>&1 \
+            || { log "WARNING: Heroic install failed (see /var/log/heroic-install.log)"; return 0; }
+        log "Heroic Games Launcher installed"
+    fi
+    [[ -e "$state/heroic-in-steam" ]] && return 0
+
+    # Add it to Steam once, with Valve's "Add to Steam" helper, as soon as
+    # Steam is running with an account signed in.
+    local desktop=$home/.local/share/flatpak/exports/share/applications/$heroic_id.desktop tries=0
+    in_steam() { grep -qs "$heroic_id" "$home"/.local/share/Steam/userdata/*/config/shortcuts.vdf; }
+    for _ in $(seq 720); do
+        in_steam && break
+        if (( tries < 3 )) && pgrep -u deck -x steamwebhelper >/dev/null \
+            && compgen -G "$home/.local/share/Steam/userdata/[1-9]*/config" >/dev/null; then
+            as_deck env -u XDG_SESSION_TYPE holo-add-to-steam "$desktop" >/dev/null 2>&1 || true
+            tries=$((tries + 1))
+            # Steam saves shortcuts.vdf shortly after; don't add it twice.
+            for _ in $(seq 60); do in_steam && break; sleep 1; done
+            continue
+        fi
+        sleep 10
+    done
+    if in_steam; then
+        as_deck touch "$state/heroic-in-steam"
+        log "Heroic Games Launcher added to Steam"
+    else
+        log "WARNING: couldn't add Heroic to Steam; add it in Desktop Mode (right-click it in the app menu > Add to Steam)"
+    fi
+}
+
+decky
+emudeck
+heroic &

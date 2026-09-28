@@ -25,6 +25,7 @@ services:
       SUNSHINE_USER: admin
       SUNSHINE_PASS: ""
       TZ: UTC
+      # PRELOAD_APPS: decky,emudeck,heroic   # optional Deck add-ons (README "Add-ons")
     volumes:
       - /dev/input:/dev/input
       - /run/udev:/run/udev:ro

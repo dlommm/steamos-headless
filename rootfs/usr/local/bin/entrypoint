@@ -354,6 +354,17 @@ for lib in "${steam_libs[@]}"; do
 done
 as_deck /usr/local/bin/steam-libraries || log "WARNING: could not register Steam libraries"
 
+# AppImages (EmuDeck, Heroic's downloads...) mount themselves with FUSE; if
+# the container has no /dev/fuse, they unpack and run instead.
+[[ -c /dev/fuse ]] || export APPIMAGE_EXTRACT_AND_RUN=1
+# Add-ons picked in PRELOAD_APPS (Decky Loader, EmuDeck, Heroic), then the
+# system services enabled with systemctl (Decky's plugin_loader), as systemd
+# would start them at boot.
+/usr/local/bin/steamos-preload
+for u in /etc/systemd/system/multi-user.target.wants/*.service; do
+    [[ -e "$u" ]] && systemctl start "$(basename "$u")"
+done
+
 as_deck /usr/local/bin/sunshine-setup
 # The encoder follows whatever GPU was detected this boot, unless one was
 # picked explicitly in the web UI (saved to sunshine.conf).

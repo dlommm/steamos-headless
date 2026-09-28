@@ -42,6 +42,8 @@ services:
       SUNSHINE_PASS: ${SUNSHINE_PASS:-}
       TZ: ${TZ:-UTC}
       STEAM_LIBRARIES: ${STEAM_LIBRARIES:-/games}
+      # Deck add-ons to install, e.g. decky,emudeck,heroic (README "Add-ons").
+      PRELOAD_APPS: ${PRELOAD_APPS:-}
     volumes:
       # Sunshine's virtual controllers/keyboard/mouse are created on the host
       # kernel, so the container needs the host's input nodes and udev database.

@@ -112,6 +112,7 @@ RUN set -eux; \
         xdg-desktop-portal-kde steamdeck-kde-presets kdialog qt6-tools qt6-wayland \
         dolphin konsole kate ark spectacle discover flatpak \
         xdg-utils lib32-libxkbcommon python-dbus python-gobject libva-nvidia-driver \
+        lsb-release fuse2 zenity \
         jupiter-hw-support jupiter-legacy-support jupiter-dock-updater-bin steamos-customizations-jupiter \
         holo-session-selection steamos-alias holo-glibc-locales steamos-networking-tools \
         steam-im-modules ibus steam_notif_daemon xdg-desktop-portal-holo xdg-desktop-portal-gamescope; do \

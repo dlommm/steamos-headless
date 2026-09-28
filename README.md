@@ -82,12 +82,29 @@ Use the `steamos-3.8` tag to stay on a specific series.
 | `WLR_RENDERER` | `gles2` on NVIDIA | sway renderer for the headless display (`gles2`, `vulkan`, `pixman`) |
 | `STEAMOS_RESOLUTION` / `STEAMOS_REFRESH` | `1920x1080` / `60` | Size at boot, before any client connects |
 | `SUNSHINE_USER` / `SUNSHINE_PASS` | `admin` / empty | Sets the web UI login at start if a password is given |
-| `STEAM_ARGS` | `-gamepadui -steamos3` | Add `-steamdeck` to make games treat it as a Deck |
+| `STEAM_ARGS` | Valve's `steam-launcher` | Run Steam with these arguments instead of Valve's (`-steamos3 -steampal -steamdeck -gamepadui`) |
 | `MDNS_INTERFACE` | default route | Network interface for Moonlight auto-discovery (Unraid's `shim-br0` is mapped to `br0`) |
 | `SUNSHINE_ALLOWED_ORIGINS` | | Extra web UI addresses to trust, e.g. `https://steam.example.com` behind a reverse proxy. The server's own IPs and hostname are trusted automatically |
 | `AVAHI` | `1` | `0` disables auto-discovery (add the host by IP in Moonlight) |
 | `NETWORKMANAGER` | `1` | Runs NetworkManager in report-only mode so Steam's setup sees the connection; `0` disables it |
 | `STEAM_LIBRARIES` | `/games` | Colon-separated folders registered as Steam libraries (skipped if not mounted) |
+| `PRELOAD_APPS` | empty | Popular Deck add-ons to install, comma-separated: `decky`, `emudeck`, `heroic` (see [Add-ons](#add-ons)) |
+
+## Add-ons
+
+List any of these in `PRELOAD_APPS` (e.g. `decky,heroic`) to have them installed on the next
+start, each with its own official installer, as on a Deck. Nothing is installed unless it's
+listed, and once installed each one updates itself. Removing an app from the list doesn't
+uninstall it.
+
+- **`decky`**: [Decky Loader](https://decky.xyz), the plugin menu in Gaming Mode (**...** button).
+  Its installer runs as on a Deck, and its `plugin_loader` service is started by the
+  container's `systemctl`, so Decky's own updater works too.
+- **`emudeck`**: puts EmuDeck's **Install EmuDeck** icon on the desktop. EmuDeck's setup asks
+  which emulators and where to keep ROMs, so open Desktop Mode and double-click it.
+- **`heroic`**: [Heroic Games Launcher](https://heroicgameslauncher.com) for Epic Games, GOG
+  and Amazon, from Flathub as Discover installs it, and added to Steam so it's in Gaming
+  Mode's library. Sign in to Epic inside Heroic.
 
 ## Storage
 
