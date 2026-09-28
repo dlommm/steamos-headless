@@ -100,8 +100,10 @@ case "$GPU_VENDOR" in
         /usr/local/bin/nvidia-userspace-install
         RENDER_NODE=${RENDER_NODE:-$(render_node_for nvidia || true)}
         [[ -n "$RENDER_NODE" ]] || log "ERROR: NVIDIA driver loaded but no render node; enable nvidia-drm.modeset=1 on the host"
+        # GLES2: sway's Vulkan renderer allocates buffers NVIDIA's EGL can't
+        # import, so Sunshine's capture fails with EGL_BAD_ALLOC (0x3003).
         export GBM_BACKEND=nvidia-drm __GLX_VENDOR_LIBRARY_NAME=nvidia \
-               WLR_RENDERER=vulkan WLR_NO_HARDWARE_CURSORS=1
+               WLR_RENDERER=${WLR_RENDERER:-gles2} WLR_NO_HARDWARE_CURSORS=1
         SUNSHINE_ENCODER=nvenc
         ;;
     amd)
@@ -125,7 +127,7 @@ if [[ -z "${RENDER_NODE:-}" || ! -e "${RENDER_NODE}" ]]; then
     SUNSHINE_ENCODER=software
 fi
 export GPU_VENDOR RENDER_NODE SUNSHINE_ENCODER
-log "GPU: ${GPU_VENDOR} render node: ${RENDER_NODE:-none} encoder: ${SUNSHINE_ENCODER}"
+log "GPU: ${GPU_VENDOR} render node: ${RENDER_NODE:-none} encoder: ${SUNSHINE_ENCODER} renderer: ${WLR_RENDERER:-auto}"
 
 # Let deck use whatever groups own the passed-through device nodes.
 for dev in /dev/dri/* /dev/uinput /dev/input/event* /dev/nvidia*; do

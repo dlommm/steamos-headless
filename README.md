@@ -75,6 +75,7 @@ Use the `steamos-3.8` tag to stay on a specific series.
 | `GPU_VENDOR` | `auto` | `nvidia` / `amd` to choose on hosts with both GPUs |
 | `NVIDIA_GPU` | all | Use only one NVIDIA card: index (`1`, as in `nvidia-smi`) or PCI address. Leaves the others free for AI/CUDA containers |
 | `RENDER_NODE` | auto | Force a device, e.g. `/dev/dri/renderD129` |
+| `WLR_RENDERER` | `gles2` on NVIDIA | sway renderer for the headless display (`gles2`, `vulkan`, `pixman`) |
 | `STEAMOS_RESOLUTION` / `STEAMOS_REFRESH` | `1920x1080` / `60` | Size at boot, before any client connects |
 | `SUNSHINE_USER` / `SUNSHINE_PASS` | `admin` / empty | Sets the web UI login at start if a password is given |
 | `STEAM_ARGS` | `-gamepadui -steamos3` | Add `-steamdeck` to make games treat it as a Deck |
