@@ -1,0 +1,208 @@
+#!/usr/bin/env python3
+"""Relay input hotplug events into the container's network namespace.
+
+libinput (sway) and Steam learn about new devices, such as Sunshine's virtual
+mouse, keyboard and pads, from udevd's netlink broadcasts. Those only reach
+the host's network namespace, so with a macvlan/ipvlan network (Unraid
+"Custom: br0") nothing sees the devices Sunshine creates and input is dead.
+Kernel uevents do arrive, so for each one this waits for the host's udevd to
+record the device in /run/udev (mounted from the host), then re-broadcasts it
+in libudev's format with those properties.
+
+Under host networking udevd's own broadcasts are visible; the first one seen
+switches the relay off so nothing is delivered twice.
+"""
+import os
+import select
+import socket
+import struct
+import sys
+import time
+
+NETLINK_KOBJECT_UEVENT = 15
+GROUP_KERNEL, GROUP_UDEV = 1, 2
+SUBSYSTEMS = {"input", "hidraw"}
+UDEV_DB = "/run/udev/data"
+# How long udevd may take to process a device, and how long after that to
+# wait for its own broadcast before sending ours.
+DB_TIMEOUT, BROADCAST_GRACE = 2.0, 0.3
+
+
+def log(msg):
+    print(f"[udev-relay] {msg}", flush=True)
+
+
+def murmur2(data, seed=0):
+    """MurmurHash2 (32-bit), as systemd's string_hash32()."""
+    m, length = 0x5BD1E995, len(data)
+    h = (seed ^ length) & 0xFFFFFFFF
+    i = 0
+    while length - i >= 4:
+        k = struct.unpack_from("<I", data, i)[0]
+        k = (k * m) & 0xFFFFFFFF
+        k ^= k >> 24
+        k = (k * m) & 0xFFFFFFFF
+        h = ((h * m) & 0xFFFFFFFF) ^ k
+        i += 4
+    rest = length - i
+    if rest == 3:
+        h ^= data[i + 2] << 16
+    if rest >= 2:
+        h ^= data[i + 1] << 8
+    if rest >= 1:
+        h ^= data[i]
+        h = (h * m) & 0xFFFFFFFF
+    h ^= h >> 13
+    h = (h * m) & 0xFFFFFFFF
+    h ^= h >> 15
+    return h
+
+
+def tag_bloom(tags):
+    bits = 0
+    for tag in tags:
+        h = murmur2(tag.encode())
+        for shift in (0, 6, 12, 18):
+            bits |= 1 << ((h >> shift) & 63)
+    return bits
+
+
+def db_path(props):
+    if "MAJOR" in props and "MINOR" in props:
+        return f"{UDEV_DB}/c{props['MAJOR']}:{props['MINOR']}"
+    return f"{UDEV_DB}/+{props['SUBSYSTEM']}:{os.path.basename(props['DEVPATH'])}"
+
+
+def read_db(path):
+    """Properties udevd recorded for a device, or None until it's initialized."""
+    try:
+        with open(path) as f:
+            lines = f.read().splitlines()
+    except OSError:
+        return None
+    props, tags, current, links = {}, [], [], []
+    for line in lines:
+        kind, _, value = line.partition(":")
+        if kind == "I":
+            props["USEC_INITIALIZED"] = value
+        elif kind == "E" and "=" in value:
+            k, _, v = value.partition("=")
+            props[k] = v
+        elif kind == "G":
+            tags.append(value)
+        elif kind == "Q":
+            current.append(value)
+        elif kind == "S":
+            links.append("/dev/" + value)
+    if "USEC_INITIALIZED" not in props:
+        return None
+    if tags:
+        props["TAGS"] = ":" + ":".join(tags) + ":"
+    if current:
+        props["CURRENT_TAGS"] = ":" + ":".join(current) + ":"
+    if links:
+        props["DEVLINKS"] = " ".join(links)
+    return props
+
+
+def encode(props):
+    body = b"".join(f"{k}={v}".encode() + b"\0" for k, v in props.items())
+    tags = [t for t in props.get("TAGS", "").split(":") if t]
+    bloom = tag_bloom(tags)
+    devtype = props.get("DEVTYPE")
+    header = struct.pack(
+        "=8s4sIII4s4s4s4s",
+        b"libudev\0",
+        struct.pack(">I", 0xFEEDCAFE),
+        40, 40, len(body),
+        struct.pack(">I", murmur2(props["SUBSYSTEM"].encode())),
+        struct.pack(">I", murmur2(devtype.encode()) if devtype else 0),
+        struct.pack(">I", bloom >> 32),
+        struct.pack(">I", bloom & 0xFFFFFFFF),
+    )
+    return header + body
+
+
+def parse_kernel(data):
+    parts = data.split(b"\0")
+    if b"@" not in parts[0]:
+        return None
+    props = {}
+    for p in parts[1:]:
+        k, sep, v = p.decode(errors="replace").partition("=")
+        if sep:
+            props[k] = v
+    return props if {"ACTION", "DEVPATH", "SUBSYSTEM", "SEQNUM"} <= props.keys() else None
+
+
+def main():
+    kernel = socket.socket(socket.AF_NETLINK, socket.SOCK_RAW, NETLINK_KOBJECT_UEVENT)
+    kernel.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 8 << 20)
+    kernel.bind((0, GROUP_KERNEL))
+    udev = socket.socket(socket.AF_NETLINK, socket.SOCK_RAW, NETLINK_KOBJECT_UEVENT)
+    udev.bind((0, GROUP_UDEV))
+    send = socket.socket(socket.AF_NETLINK, socket.SOCK_RAW, NETLINK_KOBJECT_UEVENT)
+    send.bind((0, 0))
+    own_pid = send.getsockname()[0]
+    if not os.path.isdir(UDEV_DB):
+        log(f"WARNING: {UDEV_DB} isn't there; mount the host's /run/udev read-only "
+            "so input devices get their properties")
+
+    pending = []          # [deadline, props, db_seen_at]
+    known = {}            # DEVPATH -> properties, to describe removed devices
+
+    def host_udev_visible():
+        log("host udev events are visible (host networking); relay not needed, stopping")
+        sys.exit(0)
+
+    while True:
+        timeout = None
+        if pending:
+            timeout = max(0.0, min(p[0] for p in pending) - time.monotonic())
+            timeout = min(timeout, 0.05)
+        ready, _, _ = select.select([kernel, udev], [], [], timeout)
+        if udev in ready:
+            data, (pid, _) = udev.recvfrom(1 << 16)
+            if pid != own_pid and data.startswith(b"libudev\0"):
+                host_udev_visible()
+        if kernel in ready:
+            data, (pid, _) = kernel.recvfrom(1 << 16)
+            props = parse_kernel(data) if pid == 0 else None
+            if props and props["SUBSYSTEM"] in SUBSYSTEMS:
+                pending.append([time.monotonic() + DB_TIMEOUT, props, None])
+
+        now = time.monotonic()
+        for item in list(pending):
+            deadline, props, db_seen = item
+            action, devpath = props["ACTION"], props["DEVPATH"]
+            if action == "remove":
+                merged = {**known.pop(devpath, {}), **props}
+                if now < deadline - DB_TIMEOUT + BROADCAST_GRACE:
+                    continue
+            else:
+                db = read_db(db_path(props))
+                if db is None and now < deadline:
+                    continue
+                if db is not None and db_seen is None:
+                    item[2] = now
+                    continue
+                if db is not None and now < db_seen + BROADCAST_GRACE:
+                    continue
+                merged = {**(db or {}), **props}
+                if db is None and props["SUBSYSTEM"] == "input":
+                    merged.setdefault("ID_INPUT", "1")
+                known[devpath] = merged
+            pending.remove(item)
+            if merged.get("DEVNAME") and not merged["DEVNAME"].startswith("/"):
+                merged["DEVNAME"] = "/dev/" + merged["DEVNAME"]  # kernel omits /dev
+            try:
+                send.sendto(encode(merged), (0, GROUP_UDEV))
+            except OSError as e:
+                log(f"could not send {action} {devpath}: {e}")
+                continue
+            if merged.get("DEVNAME"):
+                log(f"{action} {merged['DEVNAME']} ({merged.get('NAME', '').strip(chr(34)) or devpath})")
+
+
+if __name__ == "__main__":
+    main()

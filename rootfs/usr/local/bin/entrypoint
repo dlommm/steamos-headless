@@ -238,6 +238,11 @@ fi
 SEATD_VTBOUND=0 seatd -g video -l error &
 SEATD_PID=$!
 export LIBSEAT_BACKEND=seatd
+# Outside host networking, udevd's hotplug broadcasts don't reach this
+# container, so sway and Steam would never see Sunshine's virtual input
+# devices. The relay re-sends them here; under host networking it notices
+# udevd's own broadcasts and exits.
+/usr/local/bin/udev-relay &
 
 chown deck:deck /run/user/1000 /home/deck
 chmod 700 /run/user/1000

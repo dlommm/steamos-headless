@@ -65,7 +65,10 @@ Either works:
 
 - **Host** (template default): Sunshine is at the Unraid server's IP.
 - **Custom: br0** with its own fixed IP: Sunshine is at that IP (e.g. `https://172.16.0.34:47990`).
-  Add `--hostname=steamos` to Extra Parameters so Moonlight shows a readable name.
+  Add `--hostname=steamos` to Extra Parameters so Moonlight shows a readable name. This is
+  the way to run one container per GPU, since each Sunshine needs its own ports. Keep the
+  `/run/udev` mapping: the container relays input hotplug events itself (the host's udev
+  only announces new devices on the host network), and needs the host's udev data for that.
 
 Don't use **Bridge**: Moonlight can't discover or reach Sunshine behind Docker's NAT. The log
 warns if the container is on it.
