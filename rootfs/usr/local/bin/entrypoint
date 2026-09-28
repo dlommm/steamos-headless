@@ -141,6 +141,11 @@ if [[ "${AVAHI:-1}" == "1" ]]; then
     # Only the LAN interface: on the host network Avahi would also join Docker
     # bridges/veths, hear its own announcements and loop on name conflicts.
     mdns_if=${MDNS_INTERFACE:-$(ip route show default | awk '{print $5; exit}')}
+    # Unraid routes through a macvlan helper (shim-br0) when "host access to
+    # custom networks" is on; the real LAN bridge is the part after "shim-".
+    if [[ "$mdns_if" == shim-* && -d "/sys/class/net/${mdns_if#shim-}" ]]; then
+        mdns_if=${mdns_if#shim-}
+    fi
     # With host networking the container shares the host's IPs and hostname.
     # If the host already runs an mDNS responder (UDP 5353 is bound), let it
     # own the hostname/address records and only publish Sunshine's service;
@@ -218,6 +223,24 @@ as_deck /usr/local/bin/sunshine-setup
 # picked explicitly in the web UI (saved to sunshine.conf).
 sunshine_conf=/home/deck/.config/sunshine/sunshine.conf
 sunshine_args=()
+# Sunshine's CSRF check only trusts localhost by default, which blocks the web
+# UI when opened as https://<server-ip>:47990. Trust this host's own LAN
+# addresses and hostname (recomputed each start in case the IP changes).
+if ! grep -qE '^\s*csrf_allowed_origins\s*=' "$sunshine_conf"; then
+    host=$(cat /proc/sys/kernel/hostname)
+    origins=("https://${host}" "https://${host}.local")
+    while read -r ifname addr; do
+        [[ "$ifname" =~ ^(docker|br-|veth|virbr) ]] && continue
+        origins+=("https://${addr%/*}")
+    done < <(ip -o addr show scope global | awk '{print $2, $4}')
+    [[ -n "${SUNSHINE_ALLOWED_ORIGINS:-}" ]] && origins+=("$SUNSHINE_ALLOWED_ORIGINS")
+    csrf=""
+    for o in "${origins[@]}"; do
+        [[ "$o" == *:*:* ]] && o="https://[${o#https://}]"   # IPv6 needs brackets
+        csrf+="${csrf:+,}${o},${o}:47990"
+    done
+    sunshine_args+=("csrf_allowed_origins=${csrf}")
+fi
 if ! grep -qE '^\s*encoder\s*=' "$sunshine_conf"; then
     sunshine_args+=("encoder=${SUNSHINE_ENCODER}")
     if [[ "$SUNSHINE_ENCODER" == "vaapi" ]]; then

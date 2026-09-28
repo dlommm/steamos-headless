@@ -78,7 +78,8 @@ Use the `steamos-3.8` tag to stay on a specific series.
 | `STEAMOS_RESOLUTION` / `STEAMOS_REFRESH` | `1920x1080` / `60` | Size at boot, before any client connects |
 | `SUNSHINE_USER` / `SUNSHINE_PASS` | `admin` / empty | Sets the web UI login at start if a password is given |
 | `STEAM_ARGS` | `-gamepadui -steamos3` | Add `-steamdeck` to make games treat it as a Deck |
-| `MDNS_INTERFACE` | default route | Network interface for Moonlight auto-discovery |
+| `MDNS_INTERFACE` | default route | Network interface for Moonlight auto-discovery (Unraid's `shim-br0` is mapped to `br0`) |
+| `SUNSHINE_ALLOWED_ORIGINS` | | Extra web UI addresses to trust, e.g. `https://steam.example.com` behind a reverse proxy. The server's own IPs and hostname are trusted automatically |
 | `AVAHI` | `1` | `0` disables auto-discovery (add the host by IP in Moonlight) |
 | `STEAM_LIBRARIES` | `/games` | Colon-separated folders registered as Steam libraries (skipped if not mounted) |
 

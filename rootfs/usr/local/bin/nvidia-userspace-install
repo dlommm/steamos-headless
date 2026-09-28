@@ -59,8 +59,21 @@ sh "$run" --silent --accept-license \
     --no-install-libglvnd --no-libglx-indirect \
     --skip-depmod --skip-module-unload \
     --no-x-check \
+    --x-library-path=/usr/lib --x-module-path=/usr/lib/xorg/modules \
+    --glvnd-egl-config-path=/usr/share/glvnd/egl_vendor.d \
+    --egl-external-platform-config-path=/usr/share/egl/egl_external_platform.d \
     --log-file-name=/var/log/nvidia-installer.log \
   || { echo "[nvidia] installer failed, see /var/log/nvidia-installer.log"; tail -30 /var/log/nvidia-installer.log; exit 1; }
+
+# Report the pieces games need, so a missing one shows up in the log.
+check() { if compgen -G "$2" >/dev/null; then echo "[nvidia]   ok      $1"; else echo "[nvidia]   MISSING $1 ($2)"; fi; }
+check "64-bit GL/EGL"      "/usr/lib/libGLX_nvidia.so.*"
+check "32-bit GL (Steam)"  "/usr/lib32/libGLX_nvidia.so.*"
+check "Vulkan ICD"         "/usr/share/vulkan/icd.d/nvidia_icd*.json"
+check "EGL vendor config"  "/usr/share/glvnd/egl_vendor.d/*nvidia*.json"
+check "GBM backend"        "/usr/lib/gbm/nvidia-drm_gbm.so"
+check "NVENC"              "/usr/lib/libnvidia-encode.so.*"
+ldconfig
 
 touch "$marker"
 echo "[nvidia] done"
