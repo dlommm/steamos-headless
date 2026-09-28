@@ -39,7 +39,9 @@ RUN set -eux; \
     pacman-key --init; \
     pacman-key --populate archlinux holo; \
     mkdir -p /rootfs/var/lib/pacman /rootfs/etc/pacman.d; \
-    pacman --config /etc/pacman.steamos.conf --root /rootfs --noconfirm -Sy base holo-keyring; \
+    # Valve's mirror occasionally stalls a download; retry instead of failing.
+    n=0; until pacman --config /etc/pacman.steamos.conf --root /rootfs --noconfirm -Sy base holo-keyring; do \
+        n=$((n+1)); [ "$n" -lt 4 ] || exit 1; echo "pacman failed, retry $n/3"; sleep 15; done; \
     cp /etc/pacman.steamos.conf /rootfs/etc/pacman.conf; \
     cp /etc/pacman.d/steamos-mirrorlist /rootfs/etc/pacman.d/; \
     cp -a /etc/pacman.d/gnupg /rootfs/etc/pacman.d/; \
@@ -56,7 +58,7 @@ ARG SUNSHINE_VERSION
 COPY --from=bootstrap /rootfs/ /
 
 RUN set -eux; \
-    pacman -Syu --noconfirm --needed \
+    n=0; until pacman -Syu --noconfirm --needed \
         steam-jupiter-stable gamescope \
         mesa lib32-mesa vulkan-radeon lib32-vulkan-radeon \
         vulkan-icd-loader lib32-vulkan-icd-loader \
@@ -65,7 +67,8 @@ RUN set -eux; \
         pipewire pipewire-pulse wireplumber lib32-pipewire \
         dbus avahi nss-mdns systemd-libs sudo which curl jq kmod libxcvt \
         ttf-liberation noto-fonts \
-        mangohud lib32-mangohud gamemode lib32-gamemode; \
+        mangohud lib32-mangohud gamemode lib32-gamemode; do \
+        n=$((n+1)); [ "$n" -lt 4 ] || exit 1; echo "pacman failed, retry $n/3"; sleep 15; done; \
     pacman -Q steam-jupiter-stable gamescope mesa vulkan-radeon \
         | awk '{gsub(/-/,"_",$1); print toupper($1) "=" $2}' >> /etc/steamos-docker-release; \
     yes | pacman -Scc >/dev/null; \
