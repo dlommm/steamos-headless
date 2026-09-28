@@ -1,12 +1,12 @@
 # One image for AMD and NVIDIA: the GPU is detected at start, and on NVIDIA
 # the driver matching the host is loaded automatically.
 #
-#   docker compose pull && docker compose up -d     # prebuilt image from GitLab
+#   docker compose pull && docker compose up -d     # prebuilt image from Docker Hub
 #   docker compose up -d --build                    # or build locally
 
 services:
   steamos:
-    image: ${IMAGE_REPO:-registry.ohhcloud.com/dlomm/arch-steam-headless}:${IMAGE_TAG:-latest}
+    image: ${IMAGE_REPO:-dendlomm/steamos-headless}:${IMAGE_TAG:-latest}
     build:
       context: .
       args:
@@ -42,7 +42,7 @@ services:
       SUNSHINE_PASS: ${SUNSHINE_PASS:-}
       TZ: ${TZ:-UTC}
       STEAM_LIBRARIES: ${STEAM_LIBRARIES:-/games}
-      # Optional Deck add-ons; every option is in the README ("Add-ons").
+      # Optional Deck add-ons; every option is in docs/add-ons.md.
       # e.g. decky,heroic,protonup,xcloud
       PRELOAD_APPS: ${PRELOAD_APPS:-}
       # Other Flathub apps by app ID, e.g. com.spotify.Client

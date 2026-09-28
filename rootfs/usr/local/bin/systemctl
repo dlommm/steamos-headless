@@ -3,7 +3,7 @@
 # SteamOS's scripts ask of it: reboot/poweroff and restarting the display
 # manager act on the session. System units that other software installs in
 # /etc/systemd/system (Decky Loader's plugin_loader) are run by
-# steamos-docker-unit; enabled ones start with the container. Other units
+# steamos-headless-unit; enabled ones start with the container. Other units
 # don't exist in the container.
 set -uo pipefail
 args=()
@@ -32,21 +32,21 @@ fi
 
 if [[ -n "$sysunit" ]]; then
     case "$verb" in
-        start|restart|stop) exec steamos-docker-unit "$verb" "$sysunit" ;;
+        start|restart|stop) exec steamos-headless-unit "$verb" "$sysunit" ;;
         reload|try-restart|reload-or-restart|try-reload-or-restart)
-            steamos-docker-unit is-active "$sysunit" || [[ "$verb" == reload-or-restart ]] || exit 0
-            exec steamos-docker-unit restart "$sysunit" ;;
+            steamos-headless-unit is-active "$sysunit" || [[ "$verb" == reload-or-restart ]] || exit 0
+            exec steamos-headless-unit restart "$sysunit" ;;
         enable)
             mkdir -p "$wants"
             ln -sf "../$sysunit.service" "$wants/$sysunit.service"
-            (( now )) && exec steamos-docker-unit start "$sysunit"
+            (( now )) && exec steamos-headless-unit start "$sysunit"
             exit 0 ;;
         disable)
             rm -f "$wants/$sysunit.service"
-            (( now )) && exec steamos-docker-unit stop "$sysunit"
+            (( now )) && exec steamos-headless-unit stop "$sysunit"
             exit 0 ;;
         is-active|status)
-            if steamos-docker-unit is-active "$sysunit"; then echo active; exit 0; fi
+            if steamos-headless-unit is-active "$sysunit"; then echo active; exit 0; fi
             echo inactive; exit 3 ;;
         is-enabled)
             if [[ -e "$wants/$sysunit.service" ]]; then echo enabled; exit 0; fi

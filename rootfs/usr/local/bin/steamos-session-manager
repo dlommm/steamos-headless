@@ -12,7 +12,7 @@
 set -uo pipefail
 
 state=/run/user/1000/steamos-session
-login_mode=/home/deck/.config/steamos-docker/login-mode
+login_mode=/home/deck/.config/steamos-headless/login-mode
 log=/home/deck/.local/state/steamos-session.log
 mkdir -p "$state" "$(dirname "$log")"
 export WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-wayland-1}
@@ -32,7 +32,7 @@ next_session() {
 # configured start size.
 current_mode() {
     local m
-    m=$(cat "$state/mode" 2>/dev/null || cat /home/deck/.config/steamos-docker/client-mode 2>/dev/null)
+    m=$(cat "$state/mode" 2>/dev/null || cat /home/deck/.config/steamos-headless/client-mode 2>/dev/null)
     [[ "$m" =~ ^[0-9]+x[0-9]+@[0-9]+$ ]] || m="${STEAMOS_RESOLUTION:-1920x1080}@${STEAMOS_REFRESH:-60}"
     echo "$m"
 }
@@ -150,7 +150,7 @@ run_plasma() {
     # start. Homes whose first start predates the Steam Deck theme default
     # got plain Vapor's (KDE's wallpaper and launcher icon): let Plasma lay
     # it out again, once, unless a global theme was chosen since.
-    local cfg=/home/deck/.config marker=/home/deck/.config/steamos-docker/deck-theme
+    local cfg=/home/deck/.config marker=/home/deck/.config/steamos-headless/deck-theme
     if [[ ! -e "$marker" ]]; then
         if [[ -e "$cfg/plasma-org.kde.plasma.desktop-appletsrc" ]] \
             && ! grep -qs '^LookAndFeelPackage=' "$cfg/kdeglobals"; then

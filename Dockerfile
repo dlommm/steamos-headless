@@ -4,7 +4,7 @@
 # gamescope + Steam Big Picture headless and streamed with Sunshine.
 #
 # One image for AMD and NVIDIA: the GPU is detected when the container starts.
-#   docker build -t steamos-docker .
+#   docker build -t steamos-headless .
 
 # "latest" = highest numbered SteamOS release in Valve's repos / newest
 # Sunshine GitHub release, resolved at build time. Pin e.g. 3.8 or
@@ -45,7 +45,7 @@ RUN set -eux; \
     cp /etc/pacman.steamos.conf /rootfs/etc/pacman.conf; \
     cp /etc/pacman.d/steamos-mirrorlist /rootfs/etc/pacman.d/; \
     cp -a /etc/pacman.d/gnupg /rootfs/etc/pacman.d/; \
-    echo "STEAMOS_VERSION=${STEAMOS_VERSION}" > /rootfs/etc/steamos-docker-release; \
+    echo "STEAMOS_VERSION=${STEAMOS_VERSION}" > /rootfs/etc/steamos-headless-release; \
     rm -rf /rootfs/var/cache/pacman/pkg/*
 
 # ---------------------------------------------------------------------------
@@ -118,7 +118,7 @@ RUN set -eux; \
         steam-im-modules ibus steam_notif_daemon xdg-desktop-portal-holo xdg-desktop-portal-gamescope; do \
         n=$((n+1)); [ "$n" -lt 4 ] || exit 1; echo "pacman failed, retry $n/3"; sleep 15; done; \
     pacman -Q steam-jupiter-stable gamescope mesa vulkan-radeon plasma-workspace \
-        | awk '{gsub(/-/,"_",$1); print toupper($1) "=" $2}' >> /etc/steamos-docker-release; \
+        | awk '{gsub(/-/,"_",$1); print toupper($1) "=" $2}' >> /etc/steamos-headless-release; \
     # SteamOS's Return to Gaming Mode icon calls "qdbus"; Qt 6 names it qdbus6.
     command -v qdbus >/dev/null || ln -s "$(command -v qdbus6 || echo /usr/lib/qt6/bin/qdbus)" /usr/local/bin/qdbus; \
     # What steamos-set-plasma-theme.service does at boot on a Deck (it checks
@@ -135,7 +135,7 @@ RUN set -eux; \
     if [ -x /tmp/gamescope-build/gamescope ]; then \
         install -m755 /tmp/gamescope-build/gamescope /usr/bin/gamescope; \
         setcap 'CAP_SYS_NICE=eip' /usr/bin/gamescope || true; \
-        cat /tmp/gamescope-build/release >> /etc/steamos-docker-release; \
+        cat /tmp/gamescope-build/release >> /etc/steamos-headless-release; \
     fi; \
     rm -rf /tmp/gamescope-build
 
@@ -150,8 +150,8 @@ RUN set -eux; \
         url="https://github.com/LizardByte/Sunshine/releases/download/v${SUNSHINE_VERSION}/Sunshine_${SUNSHINE_VERSION}_x86_64.AppImage"; \
     fi; \
     echo "Sunshine: $url"; \
-    echo "SUNSHINE_URL=$url" >> /etc/steamos-docker-release; \
-    echo "SUNSHINE_VERSION=$(echo "$url" | sed -E 's|.*/download/v([^/]+)/.*|\1|')" >> /etc/steamos-docker-release; \
+    echo "SUNSHINE_URL=$url" >> /etc/steamos-headless-release; \
+    echo "SUNSHINE_VERSION=$(echo "$url" | sed -E 's|.*/download/v([^/]+)/.*|\1|')" >> /etc/steamos-headless-release; \
     curl -fsSL -o sunshine.AppImage "$url"; \
     chmod +x sunshine.AppImage; \
     ./sunshine.AppImage --appimage-extract >/dev/null; \
@@ -161,12 +161,12 @@ RUN set -eux; \
 
 # `deck` (uid 1000) is the default user on real SteamOS.
 RUN set -eux; \
-    echo "IMAGE_VERSION=${IMAGE_VERSION}" >> /etc/steamos-docker-release; \
+    echo "IMAGE_VERSION=${IMAGE_VERSION}" >> /etc/steamos-headless-release; \
     # SteamOS's image build adds its variant, release and build to
     # os-release; Steam's System settings show them as OS Variant, OS Version
     # and OS Build (OS Name is lsb-release's "SteamOS Holo"). Here: this
     # project, the SteamOS release its packages come from, and the image.
-    . /etc/steamos-docker-release; \
+    . /etc/steamos-headless-release; \
     [ -e /etc/os-release ] || ln -sf ../usr/lib/os-release /etc/os-release; \
     osr=$(readlink -f /etc/os-release); \
     sed -i -E '/^(VARIANT|VARIANT_ID|VERSION_ID|BUILD_ID|STEAMOS_DEFAULT_UPDATE_BRANCH)=/d' "$osr"; \
@@ -179,7 +179,7 @@ RUN set -eux; \
     mkdir -p /run/user/1000 && chown deck:deck /run/user/1000 && chmod 700 /run/user/1000
 
 COPY rootfs/usr/ /usr/
-COPY rootfs/etc/steamos-docker/ /etc/steamos-docker/
+COPY rootfs/etc/steamos-headless/ /etc/steamos-headless/
 RUN chmod +x /usr/local/bin/*
 
 ENV XDG_RUNTIME_DIR=/run/user/1000 \

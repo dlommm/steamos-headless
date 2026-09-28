@@ -49,3 +49,9 @@ there creates the virtual devices), set LXC **Cores** and **Memory** to what you
 available (LXC limits apply), then install Docker in the LXC and follow linux.md step 4.
 
 The container logs show the CPU threads and RAM it can see, and warn if a limit is applied.
+
+## Next steps
+
+- [Usage](../usage.md): pairing Moonlight, Gaming Mode and Desktop Mode, controllers
+- [Add-ons](../add-ons.md): Decky Loader, EmuDeck, Heroic and more
+- [Troubleshooting](../troubleshooting.md): if something doesn't work

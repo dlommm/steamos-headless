@@ -1,5 +1,5 @@
 # Install on the HOST (not in the container):
-#   sudo cp host/60-steamos-docker.rules /etc/udev/rules.d/
+#   sudo cp host/60-steamos-headless.rules /etc/udev/rules.d/
 #   sudo udevadm control --reload && sudo udevadm trigger
 # Lets the container's `deck` user (mapped to the host's input group)
 # create Sunshine's virtual controllers, keyboard and mouse.

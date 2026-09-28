@@ -3,7 +3,7 @@
 # units, for the container's systemctl (there's no systemd here). Decky
 # Loader's plugin_loader.service is the one that matters: its installer and
 # its own updater manage it with systemctl.
-#   steamos-docker-unit start|stop|restart|is-active <unit>
+#   steamos-headless-unit start|stop|restart|is-active <unit>
 # Covers what such units use: ExecStart, User, WorkingDirectory, Environment,
 # EnvironmentFile, Restart, RestartSec, KillSignal, TimeoutStopSec. Each unit
 # runs under a small supervisor; its output goes to /var/log/steamos-units.

@@ -8,7 +8,7 @@ log() { echo "[steamos] $*"; }
 as_deck() { sudo -u deck -E -H "$@"; }
 
 # --- Version / network -----------------------------------------------------
-. /etc/steamos-docker-release 2>/dev/null || true
+. /etc/steamos-headless-release 2>/dev/null || true
 log "image ${IMAGE_VERSION:-unknown} (SteamOS ${STEAMOS_VERSION:-?}, Sunshine ${SUNSHINE_VERSION:-?})"
 
 # SteamOS lets every user raise priority to nice -8 (for Proton's threads).
@@ -171,7 +171,7 @@ export GPU_VENDOR RENDER_NODE SUNSHINE_ENCODER
     for v in LIBVA_DRIVER_NAME NVD_BACKEND GBM_BACKEND __GLX_VENDOR_LIBRARY_NAME; do
         if [[ -n "${!v:-}" ]]; then echo "export $v=${!v}"; else echo "unset $v"; fi
     done
-} > /etc/profile.d/zz-steamos-docker-gpu.sh
+} > /etc/profile.d/zz-steamos-headless-gpu.sh
 
 # Hide every other GPU: its /dev/dri nodes and, for NVIDIA, its /dev/nvidiaN
 # (this container's own /dev; the host and other containers are unaffected).
@@ -215,7 +215,7 @@ for dev in /dev/uinput /dev/uhid; do
 done
 if [[ -e /dev/uinput && ! -w /dev/uinput ]] || ! sudo -u deck test -w /dev/uinput 2>/dev/null; then
     log "WARNING: deck cannot write /dev/uinput; Moonlight input will not work."
-    log "         Install host/60-steamos-docker.rules on the host (see README), or run privileged."
+    log "         Install host/60-steamos-headless.rules on the host (see docs/troubleshooting.md), or run privileged."
 fi
 
 # --- System services -------------------------------------------------------
@@ -231,15 +231,20 @@ dbus-daemon --system --fork
 # login1-shim answers in container terms (see there).
 /usr/local/bin/login1-shim &
 
+# Homes from before the SteamOS-Headless rename keep their settings.
+if [[ -d /home/deck/.config/steamos-docker && ! -e /home/deck/.config/steamos-headless ]]; then
+    mv /home/deck/.config/steamos-docker /home/deck/.config/steamos-headless
+fi
+
 # Time zone chosen in Steam's settings (steamos-set-timezone), else TZ.
-saved_tz=$(cat /home/deck/.config/steamos-docker/timezone 2>/dev/null || true)
+saved_tz=$(cat /home/deck/.config/steamos-headless/timezone 2>/dev/null || true)
 tz=${saved_tz:-${TZ:-}}
 if [[ -n "$tz" && "$tz" != *..* && -f "/usr/share/zoneinfo/$tz" ]]; then
     ln -sf "/usr/share/zoneinfo/$tz" /etc/localtime
 fi
 
 # NetworkManager, only to report the connection to Steam (see
-# /usr/lib/NetworkManager/conf.d/90-steamos-docker.conf); it changes nothing.
+# /usr/lib/NetworkManager/conf.d/90-steamos-headless.conf); it changes nothing.
 # It sees just the default-route interface, which matters under host
 # networking where every host interface is visible. With a writable /sys
 # (privileged) it would wait for udev to initialize the link, which never
@@ -288,7 +293,7 @@ if [[ "${AVAHI:-1}" == "1" ]]; then
     fi
     sed -e "s/^\[server\]/[server]\nallow-interfaces=${mdns_if}/" \
         -e "s/^publish-addresses=.*/publish-addresses=${publish_addresses}/" \
-        /etc/steamos-docker/avahi-daemon.conf > /run/avahi-daemon/avahi-daemon.conf
+        /etc/steamos-headless/avahi-daemon.conf > /run/avahi-daemon/avahi-daemon.conf
     log "mDNS on ${mdns_if:-all interfaces} as $(cat /proc/sys/kernel/hostname).local (host responder present: $([[ $publish_addresses == no ]] && echo yes || echo no))"
     avahi-daemon -f /run/avahi-daemon/avahi-daemon.conf --no-drop-root --no-chroot --no-rlimits \
         >/var/log/avahi.log 2>&1 &
@@ -317,8 +322,8 @@ as_deck mkdir -p /home/deck/.local/state /home/deck/.config
 # the host's own sshd under host networking). Host keys persist in /home/deck
 # so the fingerprint stays the same across updates.
 if [[ -n "${SSH_AUTHORIZED_KEYS:-}" ]]; then
-    ssh_dir=/home/deck/.config/steamos-docker/ssh
-    as_deck mkdir -p /home/deck/.config/steamos-docker
+    ssh_dir=/home/deck/.config/steamos-headless/ssh
+    as_deck mkdir -p /home/deck/.config/steamos-headless
     install -d -o deck -g deck -m 700 /home/deck/.ssh
     printf '%s\n' "$SSH_AUTHORIZED_KEYS" > /home/deck/.ssh/authorized_keys
     chown deck:deck /home/deck/.ssh/authorized_keys
@@ -410,7 +415,7 @@ mkdir -p /run/steamos
 start_sway() {
     : > /run/steamos/sway.log
     rm -f /run/user/1000/wayland-1 /run/user/1000/wayland-1.lock
-    as_deck sway --unsupported-gpu -c /etc/steamos-docker/sway.conf \
+    as_deck sway --unsupported-gpu -c /etc/steamos-headless/sway.conf \
         > >(tee -a /run/steamos/sway.log) 2>&1 &
     SWAY_PID=$!
     for _ in $(seq 50); do
@@ -475,7 +480,7 @@ capture_selftest() {
 
 # Renderer candidates, a WLR_RENDERER the user set is used as-is. Results are
 # remembered per image + driver, so later starts go straight to what worked.
-state_file=/home/deck/.config/steamos-docker/renderer
+state_file=/home/deck/.config/steamos-headless/renderer
 driver_id=$GPU_VENDOR
 if [[ -r /proc/driver/nvidia/version ]]; then
     driver_id=nvidia-$(grep -oP 'Kernel Module(?: for x86_64)?\s+\K[0-9.]+' /proc/driver/nvidia/version | head -1)

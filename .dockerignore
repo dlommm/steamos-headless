@@ -4,4 +4,4 @@ docs/
 deploy/
 host/
 docker-compose.yml
-.gitlab-ci.yml
+.github/

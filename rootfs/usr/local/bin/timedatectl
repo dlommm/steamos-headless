@@ -2,7 +2,7 @@
 # Container stand-in for timedatectl. set-timezone applies the zone and keeps
 # it in deck's home so it survives recreating the container.
 set -uo pipefail
-saved=/home/deck/.config/steamos-docker/timezone
+saved=/home/deck/.config/steamos-headless/timezone
 current() { readlink /etc/localtime 2>/dev/null | sed 's|.*/zoneinfo/||'; }
 case "${1:-status}" in
     set-timezone)

@@ -3,7 +3,7 @@
 
 services:
   steamos:
-    image: registry.ohhcloud.com/dlomm/arch-steam-headless:latest
+    image: dendlomm/steamos-headless:latest
     container_name: steamos
     restart: unless-stopped
     network_mode: host
@@ -16,12 +16,12 @@ services:
       GPU_VENDOR: auto              # auto | nvidia | amd (only for hosts with both)
       # GPU: "0000:c1:00.0"         # multi-GPU hosts: use only this card (PCI address from the log's "GPUs found" table)
       # SSH_AUTHORIZED_KEYS: "ssh-ed25519 AAAA..."   # optional: SSH in as deck on port 2222 for debugging
-      STEAMOS_RESOLUTION: 1920x1080 # before any client connects; clients override
+      STEAMOS_RESOLUTION: 1920x1080 # first start only; then the last Moonlight client's size
       STEAMOS_REFRESH: 60
       SUNSHINE_USER: admin
       SUNSHINE_PASS: ""             # set to preconfigure the web UI login
       TZ: UTC
-      # Optional Deck add-ons; every option is in the README ("Add-ons"):
+      # Optional Deck add-ons; every option is in docs/add-ons.md:
       # PRELOAD_APPS: decky,heroic,protonup,xcloud
       # PRELOAD_FLATPAKS: com.spotify.Client
       # DECKY_PLUGINS: CSS Loader,SteamGridDB

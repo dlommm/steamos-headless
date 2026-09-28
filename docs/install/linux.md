@@ -41,11 +41,12 @@ cat /sys/module/nvidia_drm/parameters/modeset   # must print Y
 unchanged, and datacenter cards like the L4 work too (their driver is downloaded from NVIDIA's
 Data Center archive automatically).
 
-**Multiple NVIDIA GPUs:** by default the container uses any NVIDIA card. To keep one card for
-AI containers, set `NVIDIA_GPU: "1"` (index as shown by `nvidia-smi`, or a PCI address like
-`0000:c1:00.0`). The container then only sees that card, and you can pin the AI containers to
-the other one with `NVIDIA_VISIBLE_DEVICES=0`. If you never run both at once you don't need
-this, but stop this container before large AI jobs: an idle Steam still holds some VRAM.
+**Multiple GPUs:** by default the container picks one card (dedicated NVIDIA first, then
+dedicated AMD, then integrated AMD) and hides the others from itself. To choose the card, set
+`GPU` to its PCI address (e.g. `0000:c1:00.0`, listed in the `GPUs found` table at the top of
+the log). Two containers can each own one GPU this way. To keep a card free for AI
+containers, give this one the other card and pin the AI containers with
+`NVIDIA_VISIBLE_DEVICES`. An idle Steam still holds some VRAM.
 
 The NVIDIA Container Toolkit is **not** needed, and `--runtime=nvidia`,
 `NVIDIA_VISIBLE_DEVICES` and `NVIDIA_DRIVER_CAPABILITIES` should be left out. The container
@@ -60,8 +61,8 @@ container (the default templates) sets this up itself.
 Lets Sunshine create virtual controllers, keyboard and mouse:
 
 ```bash
-sudo curl -fsSL -o /etc/udev/rules.d/60-steamos-docker.rules \
-  https://gitlab.ohhcloud.com/dlomm/arch-steam-headless/-/raw/main/host/60-steamos-docker.rules
+sudo curl -fsSL -o /etc/udev/rules.d/60-steamos-headless.rules \
+  https://raw.githubusercontent.com/dlommm/steamos-headless/main/host/60-steamos-headless.rules
 sudo udevadm control --reload && sudo udevadm trigger
 ```
 
@@ -69,7 +70,7 @@ sudo udevadm control --reload && sudo udevadm trigger
 
 ```bash
 mkdir -p ~/steamos && cd ~/steamos
-curl -fsSLO https://gitlab.ohhcloud.com/dlomm/arch-steam-headless/-/raw/main/deploy/linux/compose.yaml
+curl -fsSLO https://raw.githubusercontent.com/dlommm/steamos-headless/main/deploy/linux/compose.yaml
 # edit the paths marked CHANGE ME: Steam home on NVMe/SSD, optionally games on an HDD
 # (see ../storage.md)
 docker compose up -d
@@ -94,3 +95,9 @@ docker compose pull && docker compose up -d
 
 To stay on one version, replace `:latest` with a release tag, e.g. `:2026.09.28.3`, or
 `:steamos-3.8` for the newest build of a SteamOS series.
+
+## Next steps
+
+- [Usage](../usage.md): pairing Moonlight, Gaming Mode and Desktop Mode, controllers
+- [Add-ons](../add-ons.md): Decky Loader, EmuDeck, Heroic and more
+- [Troubleshooting](../troubleshooting.md): if something doesn't work

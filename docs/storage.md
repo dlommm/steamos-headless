@@ -70,7 +70,7 @@ mount it.
 ## Reusing a games folder you already have
 
 Point `/games` at an existing Steam library folder (the one that contains `steamapps/`), for
-example from a previous steam-headless install or a desktop PC. Steam finds the installed games
+example from another Steam server or a desktop PC. Steam finds the installed games
 on the next start; if some show as "not installed", choose Install and Steam detects the files
 instead of downloading them again.
 

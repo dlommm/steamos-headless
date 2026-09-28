@@ -20,7 +20,7 @@ mkdir -p "$state"
 
 swaymsg -q -- output HEADLESS-1 mode --custom "${W}x${H}@${R}Hz"
 echo "$mode" > "$state/mode"
-saved=/home/deck/.config/steamos-docker/client-mode
+saved=/home/deck/.config/steamos-headless/client-mode
 [[ "$(cat "$saved" 2>/dev/null)" == "$mode" ]] || { mkdir -p "${saved%/*}" && echo "$mode" > "$saved"; }
 
 want=gamescope

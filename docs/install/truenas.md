@@ -34,7 +34,7 @@ System → Advanced Settings → Init/Shutdown Scripts → Add
 - Command:
 
 ```bash
-printf '%s\n' 'KERNEL=="uinput", SUBSYSTEM=="misc", MODE="0660", GROUP="input", OPTIONS+="static_node=uinput"' 'KERNEL=="uhid", SUBSYSTEM=="misc", MODE="0660", GROUP="input"' > /etc/udev/rules.d/60-steamos-docker.rules && udevadm control --reload && udevadm trigger
+printf '%s\n' 'KERNEL=="uinput", SUBSYSTEM=="misc", MODE="0660", GROUP="input", OPTIONS+="static_node=uinput"' 'KERNEL=="uhid", SUBSYSTEM=="misc", MODE="0660", GROUP="input"' > /etc/udev/rules.d/60-steamos-headless.rules && udevadm control --reload && udevadm trigger
 ```
 
 Run the same command once in System → Shell (or reboot).
@@ -66,3 +66,9 @@ and restart.
 - TrueNAS's web UI uses ports 80/443, and Sunshine uses 47984-48010, so they don't clash
   on the host network.
 - The container logs (Apps → steamos → Logs) show the detected GPU, CPU threads and RAM.
+
+## Next steps
+
+- [Usage](../usage.md): pairing Moonlight, Gaming Mode and Desktop Mode, controllers
+- [Add-ons](../add-ons.md): Decky Loader, EmuDeck, Heroic and more
+- [Troubleshooting](../troubleshooting.md): if something doesn't work

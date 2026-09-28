@@ -2,7 +2,7 @@
 # Installs the popular Steam Deck add-ons picked at start, the way a Deck user
 # would, with each project's own installer. Runs as root at every start,
 # before Steam; whatever is already installed is left alone (each updates
-# itself from then on, or through Discover). The README ("Add-ons") lists
+# itself from then on, or through Discover). docs/add-ons.md lists
 # every option.
 #   PRELOAD_APPS      names from the catalog below, comma or space separated
 #   PRELOAD_FLATPAKS  any other Flathub app IDs, comma or space separated
@@ -17,7 +17,7 @@ PRELOAD_APPS=${PRELOAD_APPS:-} PRELOAD_FLATPAKS=${PRELOAD_FLATPAKS:-} DECKY_PLUG
 
 home=/home/deck
 homebrew=$home/homebrew
-state=$home/.config/steamos-docker/preload
+state=$home/.config/steamos-headless/preload
 flatpak_log=/var/log/preload-flatpak.log
 log() { echo "[preload] $*"; }
 as_deck() { sudo -u deck -H "$@"; }

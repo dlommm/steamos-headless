@@ -8,7 +8,7 @@ mkdir -p "$cfg" /home/deck/.local/state
 
 if [[ ! -e "$cfg/sunshine.conf" ]]; then
     {
-        echo "sunshine_name = ${SUNSHINE_NAME:-SteamOS}"
+        echo "sunshine_name = ${SUNSHINE_NAME:-SteamOS-Headless}"
         echo "capture = wlr"
         echo "system_tray = disabled"
         echo "file_apps = $cfg/apps.json"
@@ -16,7 +16,7 @@ if [[ ! -e "$cfg/sunshine.conf" ]]; then
     } > "$cfg/sunshine.conf"
 fi
 
-[[ -e "$cfg/apps.json" ]] || cp /etc/steamos-docker/apps.json "$cfg/apps.json"
+[[ -e "$cfg/apps.json" ]] || cp /etc/steamos-headless/apps.json "$cfg/apps.json"
 # Older images shipped "Desktop" without a command (it just showed the screen).
 # It now opens Desktop Mode; update that entry only if it's still untouched.
 if jq -e '.apps[] | select(.name == "Desktop" and (has("cmd") | not) and (has("prep-cmd") | not))' \

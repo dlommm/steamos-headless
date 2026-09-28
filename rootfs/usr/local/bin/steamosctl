@@ -6,7 +6,7 @@
 # The default login mode is kept in deck's home, like SteamOS keeps it.
 set -uo pipefail
 
-mode_file=/home/deck/.config/steamos-docker/login-mode
+mode_file=/home/deck/.config/steamos-headless/login-mode
 
 login_mode() { cat "$mode_file" 2>/dev/null || echo game; }
 

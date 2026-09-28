@@ -4,7 +4,7 @@
 # container image, updated by pulling a newer one, so there's never an OS
 # update to apply. The chosen branch is remembered but changes nothing.
 set -uo pipefail
-branch_file=/home/deck/.config/steamos-docker/os-branch
+branch_file=/home/deck/.config/steamos-headless/os-branch
 case "${1:-}" in
     check)             echo "No update available" ;;
     get-update-status) echo "idle" ;;
