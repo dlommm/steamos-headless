@@ -210,10 +210,21 @@ dbus-daemon --system --fork
 # happens here, so it gets a private read-only view of /sys. NETWORKMANAGER=0
 # disables it.
 if [[ "${NETWORKMANAGER:-1}" == "1" ]]; then
-    nm_if=$(ip route show default | awk '{print $5; exit}')
+    nm_if=$(ip route show default | awk '{for (i = 1; i < NF; i++) if ($i == "dev") { print $(i + 1); exit }}')
+    nm_devs="except:interface-name:${nm_if:-eth0}"
+    # A macvlan/ipvlan link (Unraid Custom: br0) has its parent outside the
+    # container, so NetworkManager can't describe it and reports it as
+    # disconnected. Give it an internal veth pair (no routes, carries nothing)
+    # to show as the wired connection; the connectivity check still runs over
+    # the real interface, so Steam sees "connected" with full internet.
+    if ip -d link show dev "${nm_if:-eth0}" 2>/dev/null | grep -qwE 'ipvlan|macvlan'; then
+        ip link add wired type veth peer name wired-peer 2>/dev/null || true
+        ip addr replace 169.254.77.1/30 dev wired
+        ip link set wired up && ip link set wired-peer up
+        nm_devs+=";except:interface-name:wired"
+    fi
     mkdir -p /run/NetworkManager/conf.d
-    printf '[keyfile]\nunmanaged-devices=except:interface-name:%s\n' "${nm_if:-eth0}" \
-        > /run/NetworkManager/conf.d/90-interface.conf
+    printf '[keyfile]\nunmanaged-devices=%s\n' "$nm_devs" > /run/NetworkManager/conf.d/90-interface.conf
     unshare -m --propagation private \
         sh -c 'mount -o remount,bind,ro /sys && exec NetworkManager --no-daemon' &
 fi
