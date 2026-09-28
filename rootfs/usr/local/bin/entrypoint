@@ -1,0 +1,115 @@
+#!/bin/bash
+# Container init: runs as root, prepares devices, then starts the session
+# stack as `deck`. If any core service dies the container exits so the
+# restart policy can bring it back cleanly.
+set -euo pipefail
+
+log() { echo "[steamos] $*"; }
+as_deck() { sudo -u deck -E -H "$@"; }
+
+# --- GPU -------------------------------------------------------------------
+if [[ "${GPU_VENDOR}" == "nvidia" ]]; then
+    /usr/local/bin/nvidia-userspace-install
+    want_driver=nvidia
+else
+    want_driver=amdgpu
+fi
+
+# Pick the render node that belongs to the right vendor (hosts can have an
+# iGPU too). RENDER_NODE overrides.
+if [[ -z "${RENDER_NODE:-}" ]]; then
+    for node in /sys/class/drm/renderD*; do
+        [[ -e "$node/device/driver" ]] || continue
+        if [[ "$(basename "$(readlink -f "$node/device/driver")")" == "$want_driver" ]]; then
+            RENDER_NODE="/dev/dri/$(basename "$node")"
+            break
+        fi
+    done
+fi
+if [[ -z "${RENDER_NODE:-}" || ! -e "${RENDER_NODE}" ]]; then
+    log "ERROR: no ${want_driver} render node found in /dev/dri. Is the GPU passed through?"
+    [[ "${ALLOW_NO_GPU:-0}" == "1" ]] || exit 1
+    log "ALLOW_NO_GPU=1: continuing with software rendering"
+    export WLR_RENDERER=pixman
+    RENDER_NODE=""
+fi
+export RENDER_NODE
+log "GPU: ${GPU_VENDOR} render node: ${RENDER_NODE:-none}"
+
+# Let deck use whatever groups own the passed-through device nodes.
+for dev in /dev/dri/* /dev/uinput /dev/input/event* /dev/nvidia*; do
+    [[ -e "$dev" ]] || continue
+    gid=$(stat -c %g "$dev")
+    [[ "$gid" == 0 ]] && continue
+    getent group "$gid" >/dev/null || groupadd -g "$gid" "hostgrp$gid"
+    usermod -aG "$(getent group "$gid" | cut -d: -f1)" deck
+done
+if [[ -e /dev/uinput && ! -w /dev/uinput ]] || ! sudo -u deck test -w /dev/uinput 2>/dev/null; then
+    log "WARNING: deck cannot write /dev/uinput; Moonlight input will not work."
+    log "         Install host/60-steamos-docker.rules on the host (see README)."
+fi
+
+# --- System services -------------------------------------------------------
+mkdir -p /run/dbus
+rm -f /run/dbus/pid
+dbus-daemon --system --fork
+
+# mDNS so Moonlight finds the host automatically. Prefer the host's Avahi
+# (mount /run/avahi-daemon); only run our own if the host has none, since two
+# responders on one host network conflict.
+if [[ ! -S /run/avahi-daemon/socket ]]; then
+    avahi-daemon --daemonize --no-drop-root --no-chroot || log "WARNING: avahi-daemon failed; add the host manually in Moonlight"
+fi
+
+# seatd hands sway access to input devices without a real VT/logind.
+SEATD_VTBOUND=0 seatd -g video -l error &
+SEATD_PID=$!
+export LIBSEAT_BACKEND=seatd
+
+chown deck:deck /run/user/1000 /home/deck
+chmod 700 /run/user/1000
+as_deck mkdir -p /home/deck/.local/state /home/deck/.config
+
+# --- User session ----------------------------------------------------------
+export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus
+as_deck dbus-daemon --session --address="$DBUS_SESSION_BUS_ADDRESS" --fork --nopidfile
+
+as_deck pipewire &
+PIPEWIRE_PID=$!
+sleep 1
+as_deck wireplumber &
+as_deck pipewire-pulse &
+
+# sway provides a headless output that Sunshine captures (wlr-screencopy),
+# and reads Sunshine's virtual input devices through libinput.
+export WLR_BACKENDS=headless,libinput \
+       WLR_HEADLESS_OUTPUTS=1 \
+       WLR_LIBINPUT_NO_DEVICES=1 \
+       WLR_RENDER_DRM_DEVICE="${RENDER_NODE}"
+[[ -z "${RENDER_NODE}" ]] && unset WLR_RENDER_DRM_DEVICE
+as_deck sway --unsupported-gpu -c /etc/steamos-docker/sway.conf &
+SWAY_PID=$!
+
+for _ in $(seq 50); do
+    [[ -S /run/user/1000/wayland-1 ]] && break
+    sleep 0.2
+done
+[[ -S /run/user/1000/wayland-1 ]] || { log "ERROR: sway did not start"; exit 1; }
+export WAYLAND_DISPLAY=wayland-1
+log "sway is up on ${WAYLAND_DISPLAY}"
+
+# Steam starts right away (like a console) so it can update and log in before
+# anyone connects; Sunshine re-launches it at the client's resolution.
+IFS=x read -r W H <<<"${STEAMOS_RESOLUTION}"
+SUNSHINE_CLIENT_WIDTH=$W SUNSHINE_CLIENT_HEIGHT=$H SUNSHINE_CLIENT_FPS=$STEAMOS_REFRESH \
+    as_deck /usr/local/bin/steamos-session || log "WARNING: initial Steam launch failed; see ~/.local/state/steamos-session.log"
+
+as_deck /usr/local/bin/sunshine-setup
+as_deck sunshine /home/deck/.config/sunshine/sunshine.conf &
+SUNSHINE_PID=$!
+log "Sunshine web UI: https://<host-ip>:47990"
+
+trap 'log "stopping"; kill -TERM $SUNSHINE_PID $SWAY_PID $PIPEWIRE_PID $SEATD_PID 2>/dev/null; exit 0' TERM INT
+wait -n $SUNSHINE_PID $SWAY_PID $PIPEWIRE_PID $SEATD_PID
+log "a core service exited; stopping container"
+exit 1

@@ -1,0 +1,17 @@
+{
+  "env": {},
+  "apps": [
+    {
+      "name": "Steam Big Picture",
+      "image-path": "steam.png",
+      "cmd": "/usr/local/bin/steamos-session",
+      "auto-detach": "true",
+      "wait-all": "false",
+      "exit-timeout": "5"
+    },
+    {
+      "name": "Desktop",
+      "image-path": "desktop.png"
+    }
+  ]
+}

@@ -1,0 +1,46 @@
+#!/bin/bash
+# Installs NVIDIA's userspace driver matching the host kernel module.
+# Container userspace and host kernel module must be the exact same version,
+# so this can't be baked into the image. Installers are cached in
+# /var/cache/nvidia (mount a volume there to skip re-downloading).
+set -euo pipefail
+
+if [[ ! -r /proc/driver/nvidia/version ]]; then
+    echo "[nvidia] ERROR: /proc/driver/nvidia/version missing; is the NVIDIA driver loaded on the host?"
+    exit 1
+fi
+
+ver=$(grep -oP 'Kernel Module(?: for x86_64)?\s+\K[0-9]+(\.[0-9]+)+' /proc/driver/nvidia/version | head -1)
+[[ -n "$ver" ]] || { echo "[nvidia] ERROR: could not parse host driver version"; exit 1; }
+
+marker=/usr/lib/.nvidia-userspace-$ver
+if [[ -e "$marker" ]]; then
+    echo "[nvidia] userspace $ver already installed"
+    exit 0
+fi
+
+cache=/var/cache/nvidia
+run="$cache/NVIDIA-Linux-x86_64-$ver.run"
+mkdir -p "$cache"
+if [[ ! -s "$run" ]]; then
+    echo "[nvidia] downloading userspace driver $ver"
+    curl -fL --retry 3 -o "$run.part" \
+        "https://download.nvidia.com/XFree86/Linux-x86_64/$ver/NVIDIA-Linux-x86_64-$ver.run"
+    mv "$run.part" "$run"
+fi
+
+echo "[nvidia] installing userspace driver $ver (with 32-bit libs)"
+sh "$run" --silent --accept-license \
+    --no-kernel-modules --no-kernel-module-source \
+    --install-compat32-libs \
+    --no-nouveau-check --no-nvidia-modprobe --no-systemd \
+    --no-distro-scripts --no-rpms --no-backup \
+    --no-check-for-alternate-installs \
+    --no-install-libglvnd --no-libglx-indirect \
+    --skip-depmod --skip-module-unload \
+    --no-x-check \
+    --log-file-name=/var/log/nvidia-installer.log \
+  || { echo "[nvidia] installer failed, see /var/log/nvidia-installer.log"; tail -30 /var/log/nvidia-installer.log; exit 1; }
+
+touch "$marker"
+echo "[nvidia] done"

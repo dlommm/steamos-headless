@@ -1,0 +1,25 @@
+#!/bin/bash
+# First-run Sunshine config (as deck). Existing files are never overwritten,
+# so anything changed in the web UI sticks.
+set -euo pipefail
+
+cfg=/home/deck/.config/sunshine
+mkdir -p "$cfg" /home/deck/.local/state
+
+if [[ ! -e "$cfg/sunshine.conf" ]]; then
+    {
+        echo "sunshine_name = ${SUNSHINE_NAME:-SteamOS-${GPU_VENDOR}}"
+        echo "capture = wlr"
+        echo "system_tray = disabled"
+        echo "encoder = ${SUNSHINE_ENCODER}"
+        [[ "${SUNSHINE_ENCODER}" == "vaapi" && -n "${RENDER_NODE:-}" ]] && echo "adapter_name = ${RENDER_NODE}"
+        echo "file_apps = $cfg/apps.json"
+        echo "origin_web_ui_allowed = lan"
+    } > "$cfg/sunshine.conf"
+fi
+
+[[ -e "$cfg/apps.json" ]] || cp /etc/steamos-docker/apps.json "$cfg/apps.json"
+
+if [[ -n "${SUNSHINE_PASS:-}" ]]; then
+    sunshine "$cfg/sunshine.conf" --creds "${SUNSHINE_USER:-admin}" "$SUNSHINE_PASS" >/dev/null 2>&1 || true
+fi
