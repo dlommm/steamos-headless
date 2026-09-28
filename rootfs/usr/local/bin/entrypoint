@@ -132,6 +132,9 @@ case "$selected_driver" in
         RENDER_NODE=${RENDER_NODE:-${gpu_render[$selected]}}
         [[ -n "$RENDER_NODE" ]] || log "ERROR: NVIDIA GPU has no render node; enable nvidia-drm.modeset=1 on the host"
         export GBM_BACKEND=nvidia-drm __GLX_VENDOR_LIBRARY_NAME=nvidia WLR_NO_HARDWARE_CURSORS=1
+        # VA-API through libva-nvidia-driver (NVDEC); "direct" is its backend
+        # for current drivers.
+        export LIBVA_DRIVER_NAME=nvidia NVD_BACKEND=direct
         SUNSHINE_ENCODER=nvenc
         ;;
     amdgpu)
@@ -159,6 +162,16 @@ if [[ -z "${RENDER_NODE:-}" || ! -e "${RENDER_NODE}" ]]; then
     SUNSHINE_ENCODER=software
 fi
 export GPU_VENDOR RENDER_NODE SUNSHINE_ENCODER
+
+# Plasma imports its environment from a login shell, where SteamOS's
+# /etc/profile.d/libva.sh sets the Deck's radeonsi. Put this GPU's driver
+# settings back after it (profile.d runs in name order).
+{
+    echo "# Written at start by the entrypoint for the GPU this container uses."
+    for v in LIBVA_DRIVER_NAME NVD_BACKEND GBM_BACKEND __GLX_VENDOR_LIBRARY_NAME; do
+        if [[ -n "${!v:-}" ]]; then echo "export $v=${!v}"; else echo "unset $v"; fi
+    done
+} > /etc/profile.d/zz-steamos-docker-gpu.sh
 
 # Hide every other GPU: its /dev/dri nodes and, for NVIDIA, its /dev/nvidiaN
 # (this container's own /dev; the host and other containers are unaffected).
@@ -206,8 +219,12 @@ if [[ -e /dev/uinput && ! -w /dev/uinput ]] || ! sudo -u deck test -w /dev/uinpu
 fi
 
 # --- System services -------------------------------------------------------
+# /run survives a container restart (it's no tmpfs here), unlike on a real
+# boot: clear what the last run left. A stale Avahi pid stops Avahi (and with
+# it Moonlight discovery); a stale session request would pick the session.
 mkdir -p /run/dbus
-rm -f /run/dbus/pid
+rm -f /run/dbus/pid /run/avahi-daemon/pid
+find /run/user/1000 -xdev -mindepth 1 -delete 2>/dev/null || true
 dbus-daemon --system --fork
 
 # Steam's Restart / Shut Down / Sleep and Plasma's logout dialog call logind;
@@ -519,7 +536,16 @@ done
 log "Sunshine web UI: https://<host-ip>:47990"
 
 # On docker stop, let Steam exit cleanly before the rest goes down.
-trap 'log "stopping"; stop_session; kill -TERM $SUNSHINE_PID $SWAY_PID $PIPEWIRE_PID $SEATD_PID 2>/dev/null; exit 0' TERM INT
+# seatd goes last: sway hands its devices back through it on the way out.
+shutdown() {
+    log "stopping"
+    stop_session
+    kill -TERM "$SUNSHINE_PID" "$SWAY_PID" "$PIPEWIRE_PID" 2>/dev/null
+    for _ in $(seq 20); do kill -0 "$SWAY_PID" 2>/dev/null || break; sleep 0.25; done
+    kill -TERM "$SEATD_PID" 2>/dev/null
+    exit 0
+}
+trap shutdown TERM INT
 wait -n $SUNSHINE_PID $SWAY_PID $PIPEWIRE_PID $SEATD_PID
 log "a core service exited; stopping container"
 exit 1

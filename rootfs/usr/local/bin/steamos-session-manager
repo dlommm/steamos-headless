@@ -83,7 +83,19 @@ EOF
     svc() { env -i "${envs[@]}" "$@" >>"$log" 2>&1 </dev/null; }
 
     ( while kill -0 "$gs" 2>/dev/null; do svc mangoapp; sleep 1; done ) & pids+=($!)
-    command -v ibus-daemon >/dev/null && { svc ibus-daemon -r --panel=disable --emoji-extension=disable & pids+=($!); }
+    if command -v ibus-daemon >/dev/null; then
+        svc ibus-daemon -r --panel=disable --emoji-extension=disable & pids+=($!)
+        # Steam's runtime reaches IBus through its portal, which the session
+        # bus starts with sway's display variables and so looks for another
+        # IBus socket. Give the bus this IBus's address instead.
+        local addr=""
+        for _ in $(seq 25); do
+            addr=$(env -i "${envs[@]}" ibus address 2>/dev/null)
+            [[ -n "$addr" && "$addr" != "(null)" ]] && break
+            addr=""; sleep 0.2
+        done
+        [[ -n "$addr" ]] && svc dbus-update-activation-environment "IBUS_ADDRESS=$addr"
+    fi
     command -v steam_notif_daemon >/dev/null && { svc steam_notif_daemon & pids+=($!); }
     (
         while kill -0 "$gs" 2>/dev/null && [[ ! -e "$state/ending" ]]; do
