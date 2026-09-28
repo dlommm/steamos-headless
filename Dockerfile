@@ -66,7 +66,7 @@ RUN set -eux; \
         libglvnd lib32-libglvnd egl-wayland egl-gbm \
         sway seatd xorg-xwayland \
         pipewire pipewire-pulse wireplumber lib32-pipewire \
-        dbus avahi nss-mdns openssh systemd-libs sudo which curl jq kmod libxcvt \
+        dbus avahi nss-mdns networkmanager openssh systemd-libs sudo which curl jq kmod libxcvt \
         ttf-liberation noto-fonts \
         mangohud lib32-mangohud gamemode lib32-gamemode; do \
         n=$((n+1)); [ "$n" -lt 4 ] || exit 1; echo "pacman failed, retry $n/3"; sleep 15; done; \

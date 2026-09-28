@@ -202,6 +202,22 @@ mkdir -p /run/dbus
 rm -f /run/dbus/pid
 dbus-daemon --system --fork
 
+# NetworkManager, only to report the connection to Steam (see
+# /usr/lib/NetworkManager/conf.d/90-steamos-docker.conf); it changes nothing.
+# It sees just the default-route interface, which matters under host
+# networking where every host interface is visible. With a writable /sys
+# (privileged) it would wait for udev to initialize the link, which never
+# happens here, so it gets a private read-only view of /sys. NETWORKMANAGER=0
+# disables it.
+if [[ "${NETWORKMANAGER:-1}" == "1" ]]; then
+    nm_if=$(ip route show default | awk '{print $5; exit}')
+    mkdir -p /run/NetworkManager/conf.d
+    printf '[keyfile]\nunmanaged-devices=except:interface-name:%s\n' "${nm_if:-eth0}" \
+        > /run/NetworkManager/conf.d/90-interface.conf
+    unshare -m --propagation private \
+        sh -c 'mount -o remount,bind,ro /sys && exec NetworkManager --no-daemon' &
+fi
+
 # mDNS so Moonlight finds the host automatically. Sunshine publishes through
 # Avahi on the container's own D-Bus, so Avahi runs here even if the host has
 # one too (both answering on the host network is fine). AVAHI=0 disables it.

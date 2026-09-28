@@ -86,6 +86,7 @@ Use the `steamos-3.8` tag to stay on a specific series.
 | `MDNS_INTERFACE` | default route | Network interface for Moonlight auto-discovery (Unraid's `shim-br0` is mapped to `br0`) |
 | `SUNSHINE_ALLOWED_ORIGINS` | | Extra web UI addresses to trust, e.g. `https://steam.example.com` behind a reverse proxy. The server's own IPs and hostname are trusted automatically |
 | `AVAHI` | `1` | `0` disables auto-discovery (add the host by IP in Moonlight) |
+| `NETWORKMANAGER` | `1` | Runs NetworkManager in report-only mode so Steam's setup sees the connection; `0` disables it |
 | `STEAM_LIBRARIES` | `/games` | Colon-separated folders registered as Steam libraries (skipped if not mounted) |
 
 ## Storage
