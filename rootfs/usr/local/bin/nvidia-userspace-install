@@ -77,10 +77,15 @@ if ! compgen -G "/usr/share/vulkan/icd.d/nvidia_icd*.json" >/dev/null \
 fi
 
 # Report the pieces games need, so a missing one shows up in the log.
-check() { if compgen -G "$2" >/dev/null; then echo "[nvidia]   ok      $1"; else echo "[nvidia]   MISSING $1 ($2)"; fi; }
+# Several patterns may be given, separated by spaces; any match counts.
+check() {
+    local p
+    for p in $2; do compgen -G "$p" >/dev/null && { echo "[nvidia]   ok      $1"; return; }; done
+    echo "[nvidia]   MISSING $1 ($2)"
+}
 check "64-bit GL/EGL"      "/usr/lib/libGLX_nvidia.so.*"
 check "32-bit GL (Steam)"  "/usr/lib32/libGLX_nvidia.so.*"
-check "Vulkan ICD"         "/usr/share/vulkan/icd.d/nvidia_icd*.json"
+check "Vulkan ICD"         "/usr/share/vulkan/icd.d/nvidia_icd*.json /etc/vulkan/icd.d/nvidia_icd*.json"
 check "EGL vendor config"  "/usr/share/glvnd/egl_vendor.d/*nvidia*.json"
 check "GBM backend"        "/usr/lib/gbm/nvidia-drm_gbm.so"
 check "NVENC"              "/usr/lib/libnvidia-encode.so.*"

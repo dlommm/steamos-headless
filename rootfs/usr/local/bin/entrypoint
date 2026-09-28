@@ -185,9 +185,16 @@ for dev in /dev/dri/* /dev/uinput /dev/input/event* /dev/nvidia*; do
     getent group "$gid" >/dev/null || groupadd -g "$gid" "hostgrp$gid"
     usermod -aG "$(getent group "$gid" | cut -d: -f1)" deck
 done
+# uinput/uhid (Sunshine's virtual keyboard, mouse and controllers) are root-only
+# unless the host has a udev rule. In a privileged container they're the
+# container's own device nodes, so open them to the input group here.
+for dev in /dev/uinput /dev/uhid; do
+    [[ -c "$dev" ]] && ! sudo -u deck test -w "$dev" || continue
+    chgrp input "$dev" 2>/dev/null && chmod 0660 "$dev" 2>/dev/null && usermod -aG input deck
+done
 if [[ -e /dev/uinput && ! -w /dev/uinput ]] || ! sudo -u deck test -w /dev/uinput 2>/dev/null; then
     log "WARNING: deck cannot write /dev/uinput; Moonlight input will not work."
-    log "         Install host/60-steamos-docker.rules on the host (see README)."
+    log "         Install host/60-steamos-docker.rules on the host (see README), or run privileged."
 fi
 
 # --- System services -------------------------------------------------------

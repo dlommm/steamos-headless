@@ -54,6 +54,9 @@ gets the GPU through privileged mode and installs the matching driver itself, in
 
 ## 3. Input permissions (once)
 
+Only needed if the container log says `deck cannot write /dev/uinput`. A privileged
+container (the default templates) sets this up itself.
+
 Lets Sunshine create virtual controllers, keyboard and mouse:
 
 ```bash

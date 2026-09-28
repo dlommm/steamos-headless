@@ -26,6 +26,9 @@ Don't bind the GPU to VFIO (Tools → System Devices) and don't pass it to a VM 
 
 ## 2. Input permissions
 
+Only needed if the container log says `deck cannot write /dev/uinput`. A privileged
+container (the default templates) sets this up itself.
+
 Unraid's root filesystem is rebuilt at every boot, so add the udev rule to the `go` file:
 
 ```bash

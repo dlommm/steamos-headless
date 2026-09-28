@@ -23,6 +23,9 @@ the host.
 
 ## 2. Input permissions
 
+Only needed if the container log says `deck cannot write /dev/uinput`. A privileged
+container (the default templates) sets this up itself.
+
 TrueNAS resets `/etc` on updates, so add the udev rule as a startup script:
 System → Advanced Settings → Init/Shutdown Scripts → Add
 

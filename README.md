@@ -36,8 +36,8 @@ Every platform needs the same three things on the host:
    gets every GPU through privileged mode and installs the matching driver itself, including
    the 32-bit libraries Steam needs, which the toolkit doesn't provide. If they're set anyway,
    it falls back to the toolkit's libraries and prints a warning.
-2. **The udev rule** in [`host/60-steamos-docker.rules`](host/60-steamos-docker.rules) so
-   Moonlight controllers, keyboard and mouse work.
+2. **The udev rule** in [`host/60-steamos-docker.rules`](host/60-steamos-docker.rules), only if
+   the log warns that `deck cannot write /dev/uinput` (a privileged container handles it itself).
 3. **Docker**, running the container privileged with host networking (the templates do this).
 
 Then open `https://<server-ip>:47990`, create the Sunshine login, pair Moonlight, and launch
