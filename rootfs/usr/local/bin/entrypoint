@@ -311,9 +311,12 @@ if ! grep -qE '^\s*csrf_allowed_origins\s*=' "$sunshine_conf"; then
 fi
 if ! grep -qE '^\s*encoder\s*=' "$sunshine_conf"; then
     sunshine_args+=("encoder=${SUNSHINE_ENCODER}")
-    if [[ "$SUNSHINE_ENCODER" == "vaapi" ]]; then
-        sunshine_args+=("adapter_name=${RENDER_NODE}")
-    fi
+fi
+# Sunshine's Wayland capture (and VAAPI) open this render node. Unset, it looks
+# for a card with a connected monitor and, headless, falls back to renderD128,
+# which may be another GPU or hidden here: streams then stay black.
+if [[ -n "$RENDER_NODE" ]] && ! grep -qE '^\s*adapter_name\s*=' "$sunshine_conf"; then
+    sunshine_args+=("adapter_name=${RENDER_NODE}")
 fi
 
 # --- Display stack: sway -> Steam in gamescope -> Sunshine -----------------
