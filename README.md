@@ -126,6 +126,8 @@ Like a Deck, the container runs one session at a time, and a session manager kee
 - **Switch to Desktop** in Steam's power menu opens SteamOS's KDE Plasma desktop, with the Steam
   desktop client. **Return to Gaming Mode** on the desktop goes back. In Moonlight, the
   **Desktop** app opens Desktop Mode and **Steam Big Picture** opens Gaming Mode.
+- The desktop looks like a Deck's: Valve's **Vapor (Steam Deck)** theme, with the Steam Deck
+  wallpapers, the Deck logo on the app launcher and the Deck splash screen.
 - If Steam quits, restarts itself (after setup or an update) or crashes, the session comes back.
 - **Restart** restarts the session, and **Shut Down** stops it until the next Moonlight
   connection. The container keeps running.

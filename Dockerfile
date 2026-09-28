@@ -120,6 +120,11 @@ RUN set -eux; \
         | awk '{gsub(/-/,"_",$1); print toupper($1) "=" $2}' >> /etc/steamos-docker-release; \
     # SteamOS's Return to Gaming Mode icon calls "qdbus"; Qt 6 names it qdbus6.
     command -v qdbus >/dev/null || ln -s "$(command -v qdbus6 || echo /usr/lib/qt6/bin/qdbus)" /usr/local/bin/qdbus; \
+    # What steamos-set-plasma-theme.service does at boot on a Deck (it checks
+    # the board name, which a container can't have): default to the Steam
+    # Deck variant of Vapor, with the Deck wallpaper, launcher logo and splash.
+    kwriteconfig6 --file /etc/xdg/kdeglobals --group KDE --key LookAndFeelPackage com.valve.vapor.deck.desktop; \
+    kwriteconfig6 --file /etc/xdg/kdeglobals --group KDE --key DefaultDarkLookAndFeel com.valve.vapor.deck.desktop; \
     yes | pacman -Scc >/dev/null; \
     rm -rf /var/cache/pacman/pkg/*
 

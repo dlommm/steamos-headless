@@ -141,6 +141,20 @@ run_plasma() {
         ln -sf /usr/share/icons/hicolor/scalable/actions/steamdeck-gaming-return.svg "$icons/gaming-return.svg"
     fi
 
+    # Plasma lays out the desktop from the global theme once, on the first
+    # start. Homes whose first start predates the Steam Deck theme default
+    # got plain Vapor's (KDE's wallpaper and launcher icon): let Plasma lay
+    # it out again, once, unless a global theme was chosen since.
+    local cfg=/home/deck/.config marker=/home/deck/.config/steamos-docker/deck-theme
+    if [[ ! -e "$marker" ]]; then
+        if [[ -e "$cfg/plasma-org.kde.plasma.desktop-appletsrc" ]] \
+            && ! grep -qs '^LookAndFeelPackage=' "$cfg/kdeglobals"; then
+            mv "$cfg/plasma-org.kde.plasma.desktop-appletsrc" "$cfg/plasma-org.kde.plasma.desktop-appletsrc.before-deck-theme"
+            note "desktop layout set aside for the Steam Deck theme (kept as ~/.config/plasma-org.kde.plasma.desktop-appletsrc.before-deck-theme)"
+        fi
+        mkdir -p "$(dirname "$marker")" && touch "$marker"
+    fi
+
     prt=$(mktemp -d "$rt/plasma.XXXXXXXX")
     mkdir -m700 "$prt/pulse" "$prt/bin"
     ln -s "$rt/pulse/native" "$prt/pulse/native"
