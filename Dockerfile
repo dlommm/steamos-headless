@@ -157,7 +157,25 @@ RUN set -eux; \
     ./sunshine.AppImage --appimage-extract >/dev/null; \
     mv squashfs-root sunshine; \
     rm sunshine.AppImage; \
-    ln -s /opt/sunshine/AppRun /usr/local/bin/sunshine
+    ln -s /opt/sunshine/AppRun /usr/local/bin/sunshine; \
+    # CAP_SYS_NICE lets Sunshine create high-priority EGL contexts, so capture
+    # and encoding aren't starved while a game loads the GPU (Sunshine's
+    # "Hardware Encoders throttle/drop FPS during high GPU load"). Installing
+    # the AppImage does this with setcap; extracting it doesn't. A binary with
+    # file capabilities runs in secure mode, where the loader ignores the
+    # bundle's $ORIGIN library paths, so make them absolute first.
+    n=0; until pacman -S --noconfirm --needed patchelf; do \
+        n=$((n + 1)); [ "$n" -lt 5 ] || exit 1; sleep 10; \
+    done; \
+    for f in /opt/sunshine/usr/bin/sunshine /opt/sunshine/usr/lib/*.so*; do \
+        if [ -f "$f" ] && readelf -h "$f" >/dev/null 2>&1; then \
+            patchelf --set-rpath /opt/sunshine/usr/lib "$f"; \
+        fi; \
+    done; \
+    pacman -Rns --noconfirm patchelf; \
+    rm -rf /var/cache/pacman/pkg/*; \
+    setcap cap_sys_nice+p /opt/sunshine/usr/bin/sunshine; \
+    getcap /opt/sunshine/usr/bin/sunshine | grep -q cap_sys_nice
 
 # `deck` (uid 1000) is the default user on real SteamOS.
 RUN set -eux; \
