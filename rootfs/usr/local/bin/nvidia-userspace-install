@@ -65,6 +65,17 @@ sh "$run" --silent --accept-license \
     --log-file-name=/var/log/nvidia-installer.log \
   || { echo "[nvidia] installer failed, see /var/log/nvidia-installer.log"; tail -30 /var/log/nvidia-installer.log; exit 1; }
 
+# Some driver versions skip the Vulkan ICD when they can't find a Vulkan
+# loader config dir; gamescope and games need it, so register it ourselves.
+# One file serves 64- and 32-bit (the loader resolves the soname per arch).
+if ! compgen -G "/usr/share/vulkan/icd.d/nvidia_icd*.json" >/dev/null \
+   && ! compgen -G "/etc/vulkan/icd.d/nvidia_icd*.json" >/dev/null; then
+    mkdir -p /usr/share/vulkan/icd.d
+    printf '{\n  "file_format_version" : "1.0.1",\n  "ICD": {\n    "library_path": "libGLX_nvidia.so.0",\n    "api_version" : "1.4.0"\n  }\n}\n' \
+        > /usr/share/vulkan/icd.d/nvidia_icd.json
+    echo "[nvidia]   created Vulkan ICD (the installer skipped it)"
+fi
+
 # Report the pieces games need, so a missing one shows up in the log.
 check() { if compgen -G "$2" >/dev/null; then echo "[nvidia]   ok      $1"; else echo "[nvidia]   MISSING $1 ($2)"; fi; }
 check "64-bit GL/EGL"      "/usr/lib/libGLX_nvidia.so.*"

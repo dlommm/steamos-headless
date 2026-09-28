@@ -19,6 +19,7 @@ services:
       memlock: { soft: -1, hard: -1 }
     environment:
       GPU_VENDOR: auto
+      # GPU: "0000:c1:00.0"         # multi-GPU hosts: use only this card (PCI address from the log's "GPUs found" table)
       STEAMOS_RESOLUTION: 1920x1080
       STEAMOS_REFRESH: 60
       SUNSHINE_USER: admin

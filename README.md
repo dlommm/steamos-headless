@@ -73,7 +73,11 @@ Use the `steamos-3.8` tag to stay on a specific series.
 | Variable | Default | |
 |---|---|---|
 | `GPU_VENDOR` | `auto` | `nvidia` / `amd` to choose on hosts with both GPUs |
-| `NVIDIA_GPU` | all | Use only one NVIDIA card: index (`1`, as in `nvidia-smi`) or PCI address. Leaves the others free for AI/CUDA containers |
+| `GPU` | auto | PCI address of the card to use, e.g. `0000:c1:00.0` (copy it from the `GPUs found` table at the top of the log). Auto picks dedicated NVIDIA, then dedicated AMD, then integrated AMD. The other cards are hidden from the container, so two containers can each own one GPU |
+| `GPU_ISOLATE` | `1` | `0` leaves the other GPUs visible |
+| `NVIDIA_GPU` | | Older alternative to `GPU`: index as in `nvidia-smi` |
+| `SSH_AUTHORIZED_KEYS` | | Public key(s) to allow SSH into the container as `deck` (key only, for debugging). Off when empty |
+| `SSH_PORT` | `2222` | SSH port inside the container |
 | `RENDER_NODE` | auto | Force a device, e.g. `/dev/dri/renderD129` |
 | `WLR_RENDERER` | `gles2` on NVIDIA | sway renderer for the headless display (`gles2`, `vulkan`, `pixman`) |
 | `STEAMOS_RESOLUTION` / `STEAMOS_REFRESH` | `1920x1080` / `60` | Size at boot, before any client connects |

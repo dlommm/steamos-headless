@@ -35,85 +35,109 @@ if [[ "$cg_mem" != "max" ]]; then
 fi
 
 # --- GPU -------------------------------------------------------------------
-# One image serves both vendors. GPU_VENDOR=auto picks NVIDIA when the host
-# has the NVIDIA driver loaded, otherwise AMD; set nvidia/amd to override on
-# multi-GPU hosts. RENDER_NODE (e.g. /dev/dri/renderD129) overrides the device.
+# One image serves AMD and NVIDIA. Every GPU is listed at start and exactly one
+# is used; all others are hidden from this container. That keeps sway,
+# gamescope and Sunshine on the same card (NVIDIA refuses buffers shared across
+# cards) and lets several containers each own a GPU (one per person).
+#   GPU=<PCI address>    choose a card, e.g. 0000:c1:00.0 or c1:00.0
+#   otherwise            dedicated NVIDIA > dedicated AMD > integrated AMD
+#                        (GPU_VENDOR=nvidia|amd limits the automatic choice)
+#   GPU_ISOLATE=0        don't hide the other cards
 
-# Prints the first render node whose kernel driver is $1.
-render_node_for() {
-    local node
-    for node in /sys/class/drm/renderD*; do
-        [[ -e "$node/device/driver" ]] || continue
-        # Skip nodes hidden by NVIDIA_GPU (removed from this container's /dev).
-        [[ -e "/dev/dri/$(basename "$node")" ]] || continue
-        if [[ "$(basename "$(readlink -f "$node/device/driver")")" == "$1" ]]; then
-            echo "/dev/dri/$(basename "$node")"
-            return 0
-        fi
-    done
-    return 1
-}
+pci_of()    { basename "$(readlink -f "/sys/class/drm/$1/device")"; }
+driver_of() { basename "$(readlink -f "/sys/class/drm/$1/device/driver" 2>/dev/null)"; }
+norm_pci()  { local p=${1,,}; [[ "$p" == *:*:* ]] || p="0000:$p"; echo "$p"; }
 
+declare -A gpu_driver gpu_kind gpu_render gpu_name
+gpu_pcis=()
+for card in /sys/class/drm/card[0-9]*; do
+    name=$(basename "$card")
+    [[ "$name" == *-* || ! -e "$card/device/driver" ]] && continue   # skip connectors
+    pci=$(pci_of "$name")
+    [[ -n "${gpu_driver[$pci]:-}" ]] && continue
+    drv=$(driver_of "$name")
+    render=$(ls -d /sys/bus/pci/devices/"$pci"/drm/renderD* 2>/dev/null | head -1 || true)
+    case "$drv" in
+        nvidia) kind=dedicated ;;
+        amdgpu)
+            vram=$(cat "/sys/bus/pci/devices/$pci/mem_info_vram_total" 2>/dev/null || echo 0)
+            if (( vram >= 4 * 1024 * 1024 * 1024 )); then kind=dedicated; else kind=integrated; fi ;;
+        *) kind=unsupported ;;   # Intel, BMC/server VGA (ast, mgag200), simpledrm...
+    esac
+    gpu_pcis+=("$pci")
+    gpu_driver[$pci]=$drv
+    gpu_kind[$pci]=$kind
+    gpu_render[$pci]=${render:+/dev/dri/$(basename "$render")}
+    gpu_name[$pci]=$(lspci -s "$pci" -mm 2>/dev/null | awk -F'"' '{print $6}' || true)
+done
+mapfile -t gpu_pcis < <(printf '%s\n' "${gpu_pcis[@]}" | sed '/^$/d' | sort)
+
+USER_WLR_RENDERER=${WLR_RENDERER:-}
 GPU_VENDOR=${GPU_VENDOR:-auto}
-if [[ "$GPU_VENDOR" == "auto" ]]; then
-    if [[ -r /proc/driver/nvidia/version ]]; then
-        GPU_VENDOR=nvidia
-    elif render_node_for amdgpu >/dev/null; then
-        GPU_VENDOR=amd
+selected=""
+if [[ -n "${RENDER_NODE:-}" ]]; then
+    selected=$(pci_of "$(basename "$RENDER_NODE")")
+elif [[ -n "${GPU:-}" ]]; then
+    selected=$(norm_pci "$GPU")
+elif [[ -n "${NVIDIA_GPU:-}" ]]; then   # older setting: nvidia-smi index or PCI
+    if [[ "$NVIDIA_GPU" =~ ^[0-9]+$ ]]; then
+        selected=$(ls -d /proc/driver/nvidia/gpus/* 2>/dev/null | sort | sed -n "$((NVIDIA_GPU + 1))p" | xargs -r basename)
     else
-        GPU_VENDOR=none
+        selected=$(norm_pci "$NVIDIA_GPU")
     fi
-fi
-
-# NVIDIA_GPU picks one card on multi-GPU hosts (index in nvidia-smi order, or
-# PCI address like 0000:41:00.0), e.g. to leave the other one to AI containers.
-# The other cards' device nodes are removed from this container's own /dev
-# (the host is unaffected), the same isolation NVIDIA_VISIBLE_DEVICES gives.
-select_nvidia_gpu() {
-    local want=$1 i=0 gpu pci minor node keep="" name=""
-    for gpu in $(ls -d /proc/driver/nvidia/gpus/* 2>/dev/null | sort); do
-        pci=$(basename "$gpu")
-        if [[ "$want" == "$i" || "${pci,,}" == "${want,,}" || "${pci,,}" == "0000:${want,,}" ]]; then
-            keep=$pci
-            name=$(awk -F':[ \t]*' '/^Model/ {print $2}' "$gpu/information")
-        fi
-        i=$((i + 1))
-    done
-    [[ -n "$keep" ]] || { log "ERROR: NVIDIA_GPU=$want matches no GPU (have $i)"; exit 1; }
-    for gpu in /proc/driver/nvidia/gpus/*; do
-        pci=$(basename "$gpu")
-        [[ "$pci" == "$keep" ]] && continue
-        minor=$(awk -F':[ \t]*' '/^Device Minor/ {print $2}' "$gpu/information")
-        rm -f "/dev/nvidia${minor}"
-        for node in /sys/bus/pci/devices/"$pci"/drm/card* /sys/bus/pci/devices/"$pci"/drm/renderD*; do
-            [[ -e "$node" ]] && rm -f "/dev/dri/$(basename "$node")"
+else
+    for want in "nvidia dedicated" "amdgpu dedicated" "amdgpu integrated"; do
+        read -r d k <<<"$want"
+        [[ "$GPU_VENDOR" == amd && "$d" == nvidia ]] && continue
+        [[ "$GPU_VENDOR" == nvidia && "$d" == amdgpu ]] && continue
+        for pci in "${gpu_pcis[@]}"; do
+            if [[ "${gpu_driver[$pci]}" == "$d" && "${gpu_kind[$pci]}" == "$k" && -n "${gpu_render[$pci]}" ]]; then
+                selected=$pci
+                break 2
+            fi
         done
     done
-    log "NVIDIA_GPU=$want: using ${name:-GPU} at $keep only"
-}
+fi
 
-case "$GPU_VENDOR" in
+log "GPUs found:"
+[[ ${#gpu_pcis[@]} -gt 0 ]] || log "  (none)"
+for pci in "${gpu_pcis[@]}"; do
+    mark=""
+    [[ "$pci" == "$selected" ]] && mark="  <- using"
+    log "$(printf '  %-13s %-8s %-12s %-20s %s%s' "$pci" "${gpu_driver[$pci]}" "${gpu_kind[$pci]}" \
+        "${gpu_render[$pci]:-(no render)}" "${gpu_name[$pci]:-?}" "$mark")"
+done
+
+if [[ -n "$selected" && -z "${gpu_driver[$selected]:-}" ]]; then
+    log "ERROR: GPU=${GPU:-${NVIDIA_GPU:-$RENDER_NODE}} doesn't match any GPU above"
+    exit 1
+fi
+
+selected_driver=""
+if [[ -n "$selected" ]]; then
+    selected_driver=${gpu_driver[$selected]:-}
+fi
+case "$selected_driver" in
     nvidia)
-        if [[ -n "${NVIDIA_GPU:-}" ]]; then
-            select_nvidia_gpu "$NVIDIA_GPU"
-        fi
+        GPU_VENDOR=nvidia
         /usr/local/bin/nvidia-userspace-install
-        RENDER_NODE=${RENDER_NODE:-$(render_node_for nvidia || true)}
-        [[ -n "$RENDER_NODE" ]] || log "ERROR: NVIDIA driver loaded but no render node; enable nvidia-drm.modeset=1 on the host"
-        # GLES2: sway's Vulkan renderer allocates buffers NVIDIA's EGL can't
-        # import, so Sunshine's capture fails with EGL_BAD_ALLOC (0x3003).
-        export GBM_BACKEND=nvidia-drm __GLX_VENDOR_LIBRARY_NAME=nvidia \
-               WLR_RENDERER=${WLR_RENDERER:-gles2} WLR_NO_HARDWARE_CURSORS=1
+        RENDER_NODE=${RENDER_NODE:-${gpu_render[$selected]}}
+        [[ -n "$RENDER_NODE" ]] || log "ERROR: NVIDIA GPU has no render node; enable nvidia-drm.modeset=1 on the host"
+        export GBM_BACKEND=nvidia-drm __GLX_VENDOR_LIBRARY_NAME=nvidia WLR_NO_HARDWARE_CURSORS=1
         SUNSHINE_ENCODER=nvenc
         ;;
-    amd)
-        RENDER_NODE=${RENDER_NODE:-$(render_node_for amdgpu || true)}
+    amdgpu)
+        GPU_VENDOR=amd
+        RENDER_NODE=${RENDER_NODE:-${gpu_render[$selected]}}
         export LIBVA_DRIVER_NAME=radeonsi
         SUNSHINE_ENCODER=vaapi
         ;;
-    none) ;;
+    "")
+        GPU_VENDOR=none
+        RENDER_NODE=""
+        ;;
     *)
-        log "ERROR: GPU_VENDOR must be auto, nvidia or amd (got '$GPU_VENDOR')"
+        log "ERROR: the GPU at $selected ($selected_driver) isn't supported; this image supports AMD and NVIDIA"
         exit 1
         ;;
 esac
@@ -122,12 +146,36 @@ if [[ -z "${RENDER_NODE:-}" || ! -e "${RENDER_NODE}" ]]; then
     log "ERROR: no usable AMD or NVIDIA GPU found in /dev/dri. Is the GPU passed through?"
     [[ "${ALLOW_NO_GPU:-0}" == "1" ]] || exit 1
     log "ALLOW_NO_GPU=1: continuing with software rendering and encoding"
-    export WLR_RENDERER=pixman
     RENDER_NODE=""
+    selected=""
     SUNSHINE_ENCODER=software
 fi
 export GPU_VENDOR RENDER_NODE SUNSHINE_ENCODER
-log "GPU: ${GPU_VENDOR} render node: ${RENDER_NODE:-none} encoder: ${SUNSHINE_ENCODER} renderer: ${WLR_RENDERER:-auto}"
+
+# Hide every other GPU: its /dev/dri nodes and, for NVIDIA, its /dev/nvidiaN
+# (this container's own /dev; the host and other containers are unaffected).
+if [[ -n "$selected" && "${GPU_ISOLATE:-1}" == "1" ]]; then
+    hidden=()
+    for n in /dev/dri/card* /dev/dri/renderD*; do
+        [[ -e "$n" ]] || continue
+        if [[ "$(pci_of "$(basename "$n")")" != "$selected" ]]; then
+            rm -f "$n"
+            hidden+=("$(basename "$n")")
+        fi
+    done
+    for gpu in /proc/driver/nvidia/gpus/*; do
+        [[ -e "$gpu/information" && "$(basename "$gpu")" != "$selected" ]] || continue
+        minor=$(awk -F':[ \t]*' '/^Device Minor/ {print $2}' "$gpu/information")
+        if [[ -e "/dev/nvidia$minor" ]]; then
+            rm -f "/dev/nvidia$minor"
+            hidden+=("nvidia$minor")
+        fi
+    done
+    if [[ ${#hidden[@]} -gt 0 ]]; then
+        log "other GPUs hidden in this container: ${hidden[*]}"
+    fi
+fi
+log "GPU: ${GPU_VENDOR} ${selected:+at $selected }render node: ${RENDER_NODE:-none} encoder: ${SUNSHINE_ENCODER}"
 
 # Let deck use whatever groups own the passed-through device nodes.
 for dev in /dev/dri/* /dev/uinput /dev/input/event* /dev/nvidia*; do
@@ -188,6 +236,29 @@ chown deck:deck /run/user/1000 /home/deck
 chmod 700 /run/user/1000
 as_deck mkdir -p /home/deck/.local/state /home/deck/.config
 
+# --- Optional SSH (debugging) ---------------------------------------------
+# Off unless SSH_AUTHORIZED_KEYS is set. Key-only login as deck (who has sudo
+# inside the container), on SSH_PORT (default 2222 so it never collides with
+# the host's own sshd under host networking). Host keys persist in /home/deck
+# so the fingerprint stays the same across updates.
+if [[ -n "${SSH_AUTHORIZED_KEYS:-}" ]]; then
+    ssh_dir=/home/deck/.config/steamos-docker/ssh
+    as_deck mkdir -p /home/deck/.config/steamos-docker
+    install -d -o deck -g deck -m 700 /home/deck/.ssh
+    printf '%s\n' "$SSH_AUTHORIZED_KEYS" > /home/deck/.ssh/authorized_keys
+    chown deck:deck /home/deck/.ssh/authorized_keys
+    chmod 600 /home/deck/.ssh/authorized_keys
+    mkdir -p "$ssh_dir"
+    [[ -e "$ssh_dir/ssh_host_ed25519_key" ]] || ssh-keygen -q -t ed25519 -N "" -f "$ssh_dir/ssh_host_ed25519_key"
+    usermod -p '*' deck   # unlocked for key auth, but no password works
+    /usr/bin/sshd -p "${SSH_PORT:-2222}" -h "$ssh_dir/ssh_host_ed25519_key" \
+        -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no \
+        -o PermitRootLogin=no -o AllowUsers=deck -o PidFile=/run/sshd.pid \
+        && log "SSH enabled: ssh -p ${SSH_PORT:-2222} deck@<container-ip> (key auth only)" \
+        || log "WARNING: sshd failed to start"
+fi
+
+
 # --- User session ----------------------------------------------------------
 export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus
 as_deck dbus-daemon --session --address="$DBUS_SESSION_BUS_ADDRESS" --fork --nopidfile
@@ -198,24 +269,6 @@ sleep 1
 as_deck wireplumber &
 as_deck pipewire-pulse &
 
-# sway provides a headless output that Sunshine captures (wlr-screencopy),
-# and reads Sunshine's virtual input devices through libinput.
-export WLR_BACKENDS=headless,libinput \
-       WLR_HEADLESS_OUTPUTS=1 \
-       WLR_LIBINPUT_NO_DEVICES=1 \
-       WLR_RENDER_DRM_DEVICE="${RENDER_NODE}"
-[[ -z "${RENDER_NODE}" ]] && unset WLR_RENDER_DRM_DEVICE
-as_deck sway --unsupported-gpu -c /etc/steamos-docker/sway.conf &
-SWAY_PID=$!
-
-for _ in $(seq 50); do
-    [[ -S /run/user/1000/wayland-1 ]] && break
-    sleep 0.2
-done
-[[ -S /run/user/1000/wayland-1 ]] || { log "ERROR: sway did not start"; exit 1; }
-export WAYLAND_DISPLAY=wayland-1
-log "sway is up on ${WAYLAND_DISPLAY}"
-
 # Extra Steam libraries (e.g. an HDD at /games). Only the top-level folder is
 # handed to deck; existing game files are never chowned recursively.
 IFS=: read -r -a steam_libs <<<"${STEAM_LIBRARIES:-/games}"
@@ -225,12 +278,6 @@ for lib in "${steam_libs[@]}"; do
     log "Steam library: $lib ($(df -h --output=avail "$lib" | tail -1 | tr -d ' ') free)"
 done
 as_deck /usr/local/bin/steam-libraries || log "WARNING: could not register Steam libraries"
-
-# Steam starts right away (like a console) so it can update and log in before
-# anyone connects; Sunshine re-launches it at the client's resolution.
-IFS=x read -r W H <<<"${STEAMOS_RESOLUTION}"
-SUNSHINE_CLIENT_WIDTH=$W SUNSHINE_CLIENT_HEIGHT=$H SUNSHINE_CLIENT_FPS=$STEAMOS_REFRESH \
-    as_deck /usr/local/bin/steamos-session || log "WARNING: initial Steam launch failed; see ~/.local/state/steamos-session.log"
 
 as_deck /usr/local/bin/sunshine-setup
 # The encoder follows whatever GPU was detected this boot, unless one was
@@ -261,8 +308,149 @@ if ! grep -qE '^\s*encoder\s*=' "$sunshine_conf"; then
         sunshine_args+=("adapter_name=${RENDER_NODE}")
     fi
 fi
-as_deck sunshine "$sunshine_conf" "${sunshine_args[@]}" &
-SUNSHINE_PID=$!
+
+# --- Display stack: sway -> Steam in gamescope -> Sunshine -----------------
+# sway provides a headless output that Sunshine captures (wlr-screencopy),
+# and reads Sunshine's virtual input devices through libinput.
+export WLR_BACKENDS=headless,libinput WLR_HEADLESS_OUTPUTS=1 WLR_LIBINPUT_NO_DEVICES=1
+if [[ -n "${RENDER_NODE}" ]]; then
+    export WLR_RENDER_DRM_DEVICE="${RENDER_NODE}"
+fi
+mkdir -p /run/steamos
+
+start_sway() {
+    : > /run/steamos/sway.log
+    rm -f /run/user/1000/wayland-1 /run/user/1000/wayland-1.lock
+    as_deck sway --unsupported-gpu -c /etc/steamos-docker/sway.conf \
+        > >(tee -a /run/steamos/sway.log) 2>&1 &
+    SWAY_PID=$!
+    for _ in $(seq 50); do
+        [[ -S /run/user/1000/wayland-1 ]] && break
+        kill -0 "$SWAY_PID" 2>/dev/null || return 1
+        sleep 0.2
+    done
+    [[ -S /run/user/1000/wayland-1 ]] || return 1
+    export WAYLAND_DISPLAY=wayland-1
+}
+
+# Steam starts right away (like a console) so it can update and log in before
+# anyone connects; Sunshine re-launches it at the client's resolution.
+start_steam() {
+    IFS=x read -r W H <<<"${STEAMOS_RESOLUTION}"
+    SUNSHINE_CLIENT_WIDTH=$W SUNSHINE_CLIENT_HEIGHT=$H SUNSHINE_CLIENT_FPS=$STEAMOS_REFRESH \
+        as_deck /usr/local/bin/steamos-session \
+        || log "WARNING: initial Steam launch failed; see ~/.local/state/steamos-session.log"
+}
+
+start_sunshine() {
+    : > /run/steamos/sunshine.log
+    as_deck sunshine "$sunshine_conf" "${sunshine_args[@]}" \
+        > >(tee -a /run/steamos/sunshine.log) 2>&1 &
+    SUNSHINE_PID=$!
+}
+
+stop_stack() {
+    kill -TERM "$SUNSHINE_PID" 2>/dev/null || true
+    # Only ask a running Steam to quit: "steam -shutdown" would start one.
+    if pgrep -u deck -x steam >/dev/null; then
+        timeout 20 sudo -u deck -E -H steam -shutdown >/dev/null 2>&1 || true
+        for _ in $(seq 15); do pgrep -u deck -x steam >/dev/null || break; sleep 1; done
+    fi
+    pkill -u deck -x gamescope 2>/dev/null || true
+    pkill -u deck -x steam 2>/dev/null || true
+    kill -TERM "$SWAY_PID" 2>/dev/null || true
+    for _ in $(seq 20); do
+        kill -0 "$SUNSHINE_PID" 2>/dev/null || kill -0 "$SWAY_PID" 2>/dev/null || break
+        sleep 0.5
+    done
+    kill -KILL "$SUNSHINE_PID" "$SWAY_PID" 2>/dev/null || true
+    rm -f /run/user/1000/steamos-session.mode
+}
+
+# Sunshine test-encodes captured frames at startup. If sway can't import the
+# capture buffer it logs "Failed to import DMA-BUF", and real streams then
+# fail with "Couldn't import RGB Image". Use that as a self-test.
+capture_selftest() {
+    for _ in $(seq 60); do
+        grep -q 'Configuration UI available' /run/steamos/sunshine.log && break
+        kill -0 "$SUNSHINE_PID" 2>/dev/null || return 1
+        sleep 0.5
+    done
+    sleep 1
+    ! grep -q 'Failed to import DMA-BUF' /run/steamos/sway.log
+}
+
+# Renderer candidates, a WLR_RENDERER the user set is used as-is. Results are
+# remembered per image + driver, so later starts go straight to what worked.
+state_file=/home/deck/.config/steamos-docker/renderer
+driver_id=$GPU_VENDOR
+if [[ -r /proc/driver/nvidia/version ]]; then
+    driver_id=nvidia-$(grep -oP 'Kernel Module(?: for x86_64)?\s+\K[0-9.]+' /proc/driver/nvidia/version | head -1)
+fi
+state_key="${IMAGE_VERSION:-dev}|${driver_id}"
+good="" failed=""
+if [[ -r "$state_file" ]] && [[ "$(sed -n 's/^key=//p' "$state_file")" == "$state_key" ]]; then
+    good=$(sed -n 's/^good=//p' "$state_file")
+    failed=$(sed -n 's/^failed=//p' "$state_file")
+fi
+save_state() {
+    as_deck mkdir -p "$(dirname "$state_file")"
+    printf 'key=%s\ngood=%s\nfailed=%s\n' "$state_key" "$good" "$failed" | as_deck tee "$state_file" >/dev/null
+}
+
+selftest=1
+if [[ -n "$USER_WLR_RENDERER" ]]; then
+    candidates=("$USER_WLR_RENDERER"); selftest=0
+elif [[ -z "$RENDER_NODE" ]]; then
+    candidates=(pixman); selftest=0
+else
+    candidates=(gles2 vulkan)
+fi
+order=()
+[[ -n "$good" ]] && order+=("$good")
+for r in "${candidates[@]}"; do
+    [[ " $good $failed " == *" $r "* ]] || order+=("$r")
+done
+if [[ ${#order[@]} -eq 0 ]]; then
+    log "WARNING: every renderer failed the capture self-test earlier (delete $state_file to retest)"
+    order=("${candidates[0]}"); selftest=0
+fi
+
+for i in "${!order[@]}"; do
+    r=${order[$i]}
+    export WLR_RENDERER=$r
+    last=$(( i == ${#order[@]} - 1 ))
+    if ! start_sway; then
+        log "sway failed to start with renderer $r"
+        failed+=" $r"; save_state
+        if (( last )); then log "ERROR: sway could not start with any renderer"; exit 1; fi
+        continue
+    fi
+    log "sway is up on ${WAYLAND_DISPLAY} (renderer: $r)"
+    start_steam
+    start_sunshine
+    if (( ! selftest )); then
+        break
+    fi
+    if capture_selftest; then
+        log "capture self-test: renderer $r OK"
+        good=$r; save_state
+        break
+    fi
+    failed+=" $r"; good=""; save_state
+    if [[ "${RENDERER_FALLBACK:-0}" != "1" ]]; then
+        log "ERROR: capture self-test FAILED with renderer $r: sway could not import Sunshine's"
+        log "       capture buffer, so streams will show no picture. Please report this log."
+        break
+    fi
+    if (( last )); then
+        log "ERROR: capture self-test failed with every renderer (${order[*]}); streams will show no picture."
+        log "       Please report this with the log. Keeping $r running so the web UI stays reachable."
+        break
+    fi
+    log "capture self-test: renderer $r FAILED (sway could not import Sunshine's capture buffer); trying ${order[$((i + 1))]}"
+    stop_stack
+done
 log "Sunshine web UI: https://<host-ip>:47990"
 
 trap 'log "stopping"; kill -TERM $SUNSHINE_PID $SWAY_PID $PIPEWIRE_PID $SEATD_PID 2>/dev/null; exit 0' TERM INT

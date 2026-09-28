@@ -31,8 +31,11 @@ services:
     environment:
       # auto (default), nvidia or amd. Only needed on hosts with both GPUs.
       GPU_VENDOR: ${GPU_VENDOR:-auto}
-      # Multi-NVIDIA hosts: use only this card (nvidia-smi index or PCI address).
-      NVIDIA_GPU: ${NVIDIA_GPU:-}
+      # Multi-GPU hosts: use only this card, by PCI address from the log's
+      # "GPUs found" table (e.g. 0000:c1:00.0). Empty = pick automatically.
+      GPU: ${GPU:-}
+      # Optional: allow SSH into the container as deck on port 2222 (key only).
+      SSH_AUTHORIZED_KEYS: ${SSH_AUTHORIZED_KEYS:-}
       STEAMOS_RESOLUTION: ${STEAMOS_RESOLUTION:-1920x1080}
       STEAMOS_REFRESH: ${STEAMOS_REFRESH:-60}
       SUNSHINE_USER: ${SUNSHINE_USER:-admin}
