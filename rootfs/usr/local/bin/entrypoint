@@ -505,7 +505,8 @@ else
     candidates=(gles2 vulkan)
 fi
 order=()
-[[ -n "$good" ]] && order+=("$good")
+# A renderer chosen with WLR_RENDERER wins over the one remembered.
+[[ -n "$good" && -z "$USER_WLR_RENDERER" ]] && order+=("$good")
 for r in "${candidates[@]}"; do
     [[ " $good $failed " == *" $r "* ]] || order+=("$r")
 done

@@ -111,7 +111,7 @@ Everything is optional. Set these as environment variables on the container.
 | `NETWORKMANAGER` | `1` | Runs NetworkManager in report-only mode so Steam's setup sees the connection; `0` turns it off |
 | `SSH_AUTHORIZED_KEYS` | | Public key(s) allowed to SSH in as `deck`, for debugging (keys only, no passwords). Off when empty |
 | `SSH_PORT` | `2222` | SSH port |
-| `WLR_RENDERER` | `gles2` on NVIDIA | Renderer of the headless display (`gles2`, `vulkan`, `pixman`) |
+| `WLR_RENDERER` | auto | Renderer of the headless display: `gles2`, `vulkan` or `pixman`. Auto tries `gles2`, then `vulkan`, and keeps the first that passes the capture self-test. A renderer set here is used as-is, without the self-test |
 | `RENDERER_FALLBACK` | `0` | `1` tries the next renderer when the capture self-test at start fails |
 | `ALLOW_NO_GPU` | `0` | `1` keeps going without a usable GPU, with software rendering and encoding. For testing only |
 
