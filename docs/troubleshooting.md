@@ -92,21 +92,26 @@ from NVIDIA. Check the container's internet access. Once downloaded, it's cached
 Symptom: the Steam overlay (**…** → Performance) shows a low GAMESCOPE frame rate with long frame
 times, while the GPU is mostly idle and the stream itself is a steady 60 FPS in Moonlight.
 
-Many game engines, Unity especially, start a busy-waiting worker thread for every CPU thread they
-see. On a server CPU with dozens of threads, or with two workers on the two threads of one core,
-those workers starve the game's main thread. On a 64-thread EPYC, Ori ran at 12 FPS seeing every
-thread and 66 FPS seeing 8 threads on 8 separate cores; Cyberpunk 2077's benchmark went from 9 to
-28 FPS.
+Two things cause this, and the container handles both:
 
-So on hosts with more than 16 CPU threads, Windows games see 8, each on its own physical core. The
+- **Steam pins itself to two CPUs.** Started as on SteamOS, the Steam client limits itself to two
+  CPU threads, and every game it launches inherits that, so a game runs all its threads on two
+  cores. The container gives Steam back all of its CPUs whenever it does this (the log shows
+  `[steam-cpu] Steam ... had limited itself to CPUs ...`). On a 64-thread EPYC this took Cyberpunk
+  2077's benchmark from 28 to 64 FPS.
+- **Too many threads.** Game engines start a worker thread for every CPU thread they see, and on a
+  server CPU dozens of them cost more than they add. Cyberpunk's benchmark on the same EPYC: 44 FPS
+  seeing all 64 threads, 64 FPS seeing 16 or 8.
+
+So on hosts with more than 16 CPU threads, Windows games see 16, each on its own physical core. The
 cores are picked from the ones the container may use (its cpuset), on the GPU's NUMA node, sharing
 an L3 cache where possible (the larger one on X3D chips), fastest first (Intel P-cores before
 E-cores). Containers on a host's second, third, ... GPU of the same kind get different cores. The
 log shows the choice at start (`Windows games see CPUs ...`). Hosts with 16 threads or fewer are left
 alone, as on a desktop, unless the cpuset hides some CPUs: then games see exactly the allowed ones.
 
-If a game needs more, set `GAME_CPU_THREADS=16` (or `all` to turn this off), or give just that game
-its own list in **Properties → Launch options**, e.g.
+To try another count, set `GAME_CPU_THREADS` (e.g. `8` or `32`; `all` turns this off), or give just
+one game its own list in **Properties → Launch options**, e.g.
 `WINE_CPU_TOPOLOGY=12:0,1,2,3,4,5,6,7,8,9,10,11 %command%` (threads on separate cores: check
 `/sys/devices/system/cpu/cpu0/topology/thread_siblings_list` for which ones share a core).
 

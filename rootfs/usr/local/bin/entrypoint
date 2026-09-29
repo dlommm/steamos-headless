@@ -167,13 +167,13 @@ if [[ -z "${RENDER_NODE:-}" || ! -e "${RENDER_NODE}" ]]; then
 fi
 export GPU_VENDOR RENDER_NODE SUNSHINE_ENCODER
 
-# Windows games (Proton) see a few CPU threads, one per core, not all of a
-# many-core host. Many engines (Unity especially) start a busy-waiting worker
-# per thread they see and starve their own main thread. Measured on a 64-thread
-# EPYC: Ori 12 fps with every thread, 66 fps with 8 cores; Cyberpunk's
-# benchmark 9 -> 28 fps. game-cpu-topology picks the cores (cpuset, GPU's NUMA
-# node, shared L3, fastest first, other GPUs' containers elsewhere); hosts with
-# 16 threads or fewer are left alone. GAME_CPU_THREADS=N picks N instead,
+# Windows games (Proton) see 16 CPU threads, one per core, not all of a
+# many-core host: engines start a worker per thread they see, and dozens of
+# them cost more than they add. Cyberpunk's benchmark on a 64-thread EPYC
+# (with steam-cpu-unpin): every thread 44 fps, 16 or 8 cores 64 fps.
+# game-cpu-topology picks the cores (cpuset, GPU's NUMA node, shared L3,
+# fastest first, other GPUs' containers elsewhere); hosts with 16 threads or
+# fewer are left alone. GAME_CPU_THREADS=N picks N instead,
 # 0/all turns it off; a WINE_CPU_TOPOLOGY given to the container or in a
 # game's launch options wins.
 game_threads=${GAME_CPU_THREADS:-auto}
@@ -346,6 +346,10 @@ export LIBSEAT_BACKEND=seatd
 # devices. The relay re-sends them here; under host networking it notices
 # udevd's own broadcasts and exits.
 /usr/local/bin/udev-relay &
+
+# Steam (as on SteamOS) pins itself to two CPUs, and games inherit that; give
+# it back the container's CPUs (see there).
+/usr/local/bin/steam-cpu-unpin &
 
 chown deck:deck /run/user/1000 /home/deck
 chmod 700 /run/user/1000

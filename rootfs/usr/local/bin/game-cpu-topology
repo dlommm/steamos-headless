@@ -13,8 +13,9 @@ which ones matter as well as how many:
   * containers on other GPUs of the same kind start further along, so one
     container per GPU doesn't put every game on the same cores
 
-Hosts with at most 16 threads (a typical desktop) are left alone unless the
-cpuset hides some: Wine counts every online CPU, not the ones it may use.
+Games see 16 threads by default. Hosts with at most 16 threads (a typical
+desktop) are left alone unless the cpuset hides some: Wine counts every
+online CPU, not the ones it may use.
 
 Usage: game-cpu-topology [--threads N] [--gpu PCI]
 Prints "N:cpu,cpu,..." or nothing (leave games alone), and why on stderr.
@@ -138,7 +139,7 @@ def main():
             print(f"{len(allowed)} CPU threads; games see all of them", file=sys.stderr)
         return
 
-    want = args.threads or 8
+    want = args.threads or 16
     perf = perf_of(allowed)
     cores = {}  # one entry per physical core: its allowed threads
     for c in allowed:
@@ -165,6 +166,13 @@ def main():
         min(t[0] for t in g["cores"]),
     ))
     ranked = [t for g in order for t in g["cores"]]
+    if not args.threads:
+        # One thread per core, never SMT siblings, unless asked for more.
+        want = min(want, len(ranked))
+        # X3D: stay on the V-Cache chiplet, as AMD's driver steers games.
+        sizes = {g["size"] for g in order}
+        if len(sizes) > 1:
+            want = min(want, sum(len(g["cores"]) for g in order if g["size"] == max(sizes)))
     want = min(want, len(allowed))
 
     # Containers on other GPUs start further along, whole L3 domains at a time.

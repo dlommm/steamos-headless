@@ -1,0 +1,19 @@
+#!/bin/bash
+# Steam's client, started as on SteamOS (-steamdeck), pins itself to two CPUs
+# (0,2 here) at start, and every game it launches inherits that: on a 64-thread
+# EPYC, Cyberpunk 2077 ran all its threads on those two cores (28 fps; 64 fps
+# once widened). It re-applies this now and then and never restores it for
+# games, so give Steam, its web helpers and the launch chain a game starts
+# through (reaper, the Steam Runtime's container) back the container's CPUs
+# whenever they're narrower. Games then start with every CPU (or
+# WINE_CPU_TOPOLOGY's pick).
+allowed=$(awk '/^Cpus_allowed_list/ {print $2}' /proc/self/status)
+while sleep 2; do
+    for p in $(pgrep -x 'steam|steamwebhelper|reaper|steam-launch-wr|srt-bwrap|pv-adverb|pressure-vessel'); do
+        mask=$(awk '/^Cpus_allowed_list/ {print $2}' "/proc/$p/status" 2>/dev/null) || continue
+        [[ -z "$mask" || "$mask" == "$allowed" ]] && continue
+        taskset -a -p -c "$allowed" "$p" >/dev/null 2>&1 || continue
+        [[ "$(cat "/proc/$p/comm" 2>/dev/null)" == steam ]] \
+            && echo "[steam-cpu] Steam ($p) had limited itself to CPUs $mask; now $allowed"
+    done
+done
