@@ -104,7 +104,7 @@ RUN set -eux; \
         vulkan-icd-loader lib32-vulkan-icd-loader \
         libglvnd lib32-libglvnd egl-wayland egl-gbm \
         sway seatd xorg-xwayland \
-        pipewire pipewire-pulse wireplumber lib32-pipewire \
+        pipewire pipewire-pulse wireplumber lib32-pipewire realtime-privileges \
         dbus avahi nss-mdns networkmanager openssh systemd-libs sudo which curl jq kmod libxcvt \
         ttf-liberation noto-fonts \
         mangohud lib32-mangohud gamemode lib32-gamemode \
@@ -192,7 +192,7 @@ RUN set -eux; \
         "VERSION_ID=${STEAMOS_VERSION}" "BUILD_ID=${IMAGE_VERSION}" \
         'STEAMOS_DEFAULT_UPDATE_BRANCH=stable' >> "$osr"; \
     cat "$osr"; \
-    useradd -m -u 1000 -G video,input,audio,wheel -s /bin/bash deck; \
+    useradd -m -u 1000 -G video,input,audio,wheel,realtime -s /bin/bash deck; \
     echo 'deck ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/deck; \
     mkdir -p /run/user/1000 && chown deck:deck /run/user/1000 && chmod 700 /run/user/1000
 
