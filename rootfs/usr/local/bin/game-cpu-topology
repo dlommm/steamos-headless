@@ -1,0 +1,189 @@
+#!/usr/bin/env python3
+"""Pick the CPU threads Windows games (Proton) see; print WINE_CPU_TOPOLOGY.
+
+Many engines start a busy-waiting worker per CPU thread they see. With dozens
+of threads (or two workers on one core's SMT siblings) they starve the main
+thread. Proton pins a game to the host CPUs listed in WINE_CPU_TOPOLOGY, so
+which ones matter as well as how many:
+
+  * only CPUs this container may use (its cpuset), one thread per core
+  * the GPU's NUMA node first (multi-socket / NPS>1 hosts)
+  * cores that share one L3 cache (AMD CCX/CCD), the largest L3 first (X3D)
+  * within those, the fastest cores first (Intel P-cores, AMD preferred cores)
+  * containers on other GPUs of the same kind start further along, so one
+    container per GPU doesn't put every game on the same cores
+
+Hosts with at most 16 threads (a typical desktop) are left alone unless the
+cpuset hides some: Wine counts every online CPU, not the ones it may use.
+
+Usage: game-cpu-topology [--threads N] [--gpu PCI]
+Prints "N:cpu,cpu,..." or nothing (leave games alone), and why on stderr.
+SYSFS / CPUS_ALLOWED override the host's for testing.
+"""
+import argparse
+import math
+import os
+import re
+import sys
+
+SYS = os.environ.get("SYSFS", "/sys")
+DESKTOP_THREADS = 16
+GPU_DRIVERS = {"nvidia", "amdgpu", "i915", "xe", "nouveau", "radeon"}
+
+
+def read(path, default=None):
+    try:
+        with open(os.path.join(SYS, path)) as f:
+            return f.read().strip()
+    except OSError:
+        return default
+
+
+def cpu_list(text):
+    cpus = []
+    for part in filter(None, (text or "").split(",")):
+        lo, _, hi = part.partition("-")
+        cpus.extend(range(int(lo), int(hi or lo) + 1))
+    return cpus
+
+
+def allowed_cpus():
+    if "CPUS_ALLOWED" in os.environ:
+        return cpu_list(os.environ["CPUS_ALLOWED"])
+    return sorted(os.sched_getaffinity(0))
+
+
+def size_kib(text):
+    m = re.match(r"(\d+)([KMG]?)", text or "")
+    if not m:
+        return 0
+    n, unit = int(m.group(1)), m.group(2)
+    return n // 1024 if not unit else n * {"K": 1, "M": 1024, "G": 1 << 20}[unit]
+
+
+def l3_of(cpu):
+    base = f"devices/system/cpu/cpu{cpu}/cache"
+    try:
+        entries = sorted(os.listdir(os.path.join(SYS, base)))
+    except OSError:
+        entries = []
+    for idx in entries:
+        if idx.startswith("index") and read(f"{base}/{idx}/level") == "3":
+            key = read(f"{base}/{idx}/shared_cpu_list") or read(f"{base}/{idx}/id")
+            return key, size_kib(read(f"{base}/{idx}/size"))
+    return None, 0
+
+
+def node_of(cpu):
+    try:
+        for e in os.listdir(os.path.join(SYS, f"devices/system/cpu/cpu{cpu}")):
+            if re.fullmatch(r"node\d+", e):
+                return int(e[4:])
+    except OSError:
+        pass
+    return 0
+
+
+# Relative core speed, from the first source every CPU has: hybrid capacity
+# (Intel P/E), AMD preferred-core ranking, ACPI CPPC, then max frequency.
+PERF_SOURCES = [
+    "cpu_capacity",
+    "cpufreq/amd_pstate_prefcore_ranking",
+    "acpi_cppc/highest_perf",
+    "cpufreq/cpuinfo_max_freq",
+]
+
+
+def perf_of(cpus):
+    for src in PERF_SOURCES:
+        vals = {c: read(f"devices/system/cpu/cpu{c}/{src}") for c in cpus}
+        if all(v and v.isdigit() for v in vals.values()):
+            return {c: int(v) for c, v in vals.items()}
+    return {c: 0 for c in cpus}
+
+
+def gpu_slot(gpu):
+    """This GPU's index among same-driver GPUs on its NUMA node, and the node."""
+    if not gpu:
+        return 0, -1
+    dev = f"bus/pci/devices/{gpu}"
+    node = int(read(f"{dev}/numa_node", "-1"))
+    driver = os.path.basename(os.path.realpath(os.path.join(SYS, dev, "driver")))
+    peers = []
+    for d in sorted(os.listdir(os.path.join(SYS, "bus/pci/devices"))):
+        p = f"bus/pci/devices/{d}"
+        if not (read(f"{p}/class") or "").startswith("0x03"):
+            continue
+        drv = os.path.basename(os.path.realpath(os.path.join(SYS, p, "driver")))
+        if drv == driver and drv in GPU_DRIVERS and int(read(f"{p}/numa_node", "-1")) == node:
+            peers.append(d)
+    return (peers.index(gpu) if gpu in peers else 0), node
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--threads", type=int, default=0, help="0 = automatic")
+    ap.add_argument("--gpu", default="")
+    args = ap.parse_args()
+
+    allowed = allowed_cpus()
+    online = cpu_list(read("devices/system/cpu/online")) or allowed
+    hidden = set(allowed) != set(online)
+
+    if not args.threads and len(allowed) <= DESKTOP_THREADS:
+        if hidden:
+            print(f"{len(allowed)}:{','.join(map(str, allowed))}")
+            print(f"the container may use {len(allowed)} of {len(online)} CPU threads; games see those", file=sys.stderr)
+        else:
+            print(f"{len(allowed)} CPU threads; games see all of them", file=sys.stderr)
+        return
+
+    want = args.threads or 8
+    perf = perf_of(allowed)
+    cores = {}  # one entry per physical core: its allowed threads
+    for c in allowed:
+        t = f"devices/system/cpu/cpu{c}/topology"
+        key = read(f"{t}/core_cpus_list") or read(f"{t}/thread_siblings_list") \
+            or f"{read(f'{t}/physical_package_id')}-{read(f'{t}/core_id')}"
+        cores.setdefault(key, []).append(c)
+
+    groups = {}  # L3 domain -> cores
+    for threads in cores.values():
+        l3, size = l3_of(threads[0])
+        g = groups.setdefault(l3 or f"node{node_of(threads[0])}", {"size": size, "node": node_of(threads[0]), "cores": []})
+        g["cores"].append(sorted(threads, key=lambda c: (-perf[c], c)))
+    for g in groups.values():
+        g["cores"].sort(key=lambda t: (-perf[t[0]], t[0]))
+
+    slot, gpu_node = gpu_slot(args.gpu)
+    # Neighbouring L3 domains, not the ones with the single fastest core: on
+    # Zen 2 two 4-core CCXs share a chiplet, and a few percent of boost is
+    # worth less than keeping a game's threads close together.
+    order = sorted(groups.values(), key=lambda g: (
+        g["node"] != gpu_node,                    # GPU's NUMA node first
+        -g["size"],                               # biggest L3 (X3D) first
+        min(t[0] for t in g["cores"]),
+    ))
+    ranked = [t for g in order for t in g["cores"]]
+    want = min(want, len(allowed))
+
+    # Containers on other GPUs start further along, whole L3 domains at a time.
+    # With more GPUs than room, they wrap around and share.
+    if slot and want <= len(ranked):
+        per_group = max(len(g["cores"]) for g in order)
+        skip = math.ceil(want / per_group) * per_group * slot % len(ranked)
+        ranked = ranked[skip:] + ranked[:skip]
+
+    picked = [t[0] for t in ranked[:want]]
+    # More threads than cores: add SMT siblings, in the same order.
+    for t in ranked:
+        for c in t[1:]:
+            if len(picked) < want:
+                picked.append(c)
+    print(f"{len(picked)}:{','.join(map(str, sorted(picked)))}")
+    per_core = "one per core" if len(picked) <= len(ranked) else "with SMT siblings"
+    print(f"{len(picked)} of {len(allowed)} CPU threads, {per_core}, GPU slot {slot}", file=sys.stderr)
+
+
+if __name__ == "__main__":
+    main()
