@@ -87,6 +87,22 @@ blocks Linux don't work, as on a Steam Deck.
 from NVIDIA. Check the container's internet access. Once downloaded, it's cached in
 `/var/cache/nvidia`, so mount that folder to avoid downloading it again.
 
+## Games run slowly on servers with many CPU threads
+
+Symptom: the Steam overlay (**…** → Performance) shows a low GAMESCOPE frame rate with long frame
+times, while the GPU is mostly idle and the stream itself is a steady 60 FPS in Moonlight.
+
+Many game engines, Unity especially, start a busy-waiting worker thread for every CPU thread they
+see. On a server CPU with dozens of threads, or with two workers on the two threads of one core,
+those workers starve the game's main thread. On a 64-thread EPYC, Ori ran at 12 FPS seeing every
+thread and 66 FPS seeing 8 threads on 8 separate cores.
+
+So Windows games see `GAME_CPU_THREADS` threads (default 8), each on its own physical core. The
+log shows the choice at start (`Windows games see 8 CPU threads...`). If a game needs more, set
+`GAME_CPU_THREADS=16`, or give just that game its own list in **Properties → Launch options**,
+e.g. `WINE_CPU_TOPOLOGY=12:0,1,2,3,4,5,6,7,8,9,10,11 %command%` (threads on separate cores: check
+`/sys/devices/system/cpu/cpu0/topology/thread_siblings_list` for which ones share a core).
+
 ## Reporting a problem
 
 Open an issue on [GitHub](https://github.com/dlommm/steamos-headless/issues) with:
