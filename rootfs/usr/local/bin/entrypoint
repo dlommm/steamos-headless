@@ -441,6 +441,18 @@ start_sunshine() {
     as_deck sunshine "$sunshine_conf" "${sunshine_args[@]}" \
         > >(tee -a /run/steamos/sunshine.log) 2>&1 &
     SUNSHINE_PID=$!
+    # Sunshine raises its capture/encode threads to nice -10/-15, but SteamOS
+    # only lets users go to -8 (15-proton-nice.conf). Allow -15 for Sunshine
+    # alone (RLIMIT_NICE 35) rather than for every game; only root can raise it.
+    (
+        for _ in $(seq 60); do
+            grep -q 'Configuration UI available' /run/steamos/sunshine.log && break
+            sleep 0.5
+        done
+        for pid in $(pgrep -u deck -x sunshine); do
+            prlimit --pid "$pid" --nice=35:35 2>/dev/null || true
+        done
+    ) &
 }
 
 stop_session() {
