@@ -95,7 +95,6 @@ Everything is optional. Set these as environment variables on the container.
 | `GPU_ISOLATE` | `1` | `0` leaves the other GPUs visible |
 | `NVIDIA_GPU` | | Older alternative to `GPU`: the card's index as in `nvidia-smi` |
 | `RENDER_NODE` | auto | Force a device, e.g. `/dev/dri/renderD129` |
-| `GAME_CPU_THREADS` | `8` | How many CPU threads Windows (Proton) games see, one per physical core, like a Deck's 8. Games built for a handful of threads (Unity games especially) can run several times slower when they see dozens. `16` for more, `0` or `all` for every thread. A `WINE_CPU_TOPOLOGY` in a game's launch options overrides it. See [troubleshooting](docs/troubleshooting.md#games-run-slowly-on-servers-with-many-cpu-threads) |
 | `STEAMOS_RESOLUTION` / `STEAMOS_REFRESH` | `1920x1080` / `60` | Display size at the very first start. After that the container starts at the last client's size |
 | `TZ` | `UTC` | Time zone, e.g. `America/New_York`. A time zone picked in Steam's settings takes priority and is kept |
 | `SUNSHINE_USER` / `SUNSHINE_PASS` | `admin` / empty | Sets the Sunshine web UI login at start when a password is given. Empty: create it in the web UI |

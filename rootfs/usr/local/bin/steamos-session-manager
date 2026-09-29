@@ -85,8 +85,6 @@ EOF
     fi
     # The units' EnvironmentFile. Children talk to gamescope, not to sway.
     mapfile -t envs < <(grep -v '^WAYLAND_DISPLAY=' "$envfile")
-    # The CPU threads Windows games see (set by the entrypoint).
-    [[ -n "${WINE_CPU_TOPOLOGY:-}" ]] && envs+=("WINE_CPU_TOPOLOGY=$WINE_CPU_TOPOLOGY")
     svc() { env -i "${envs[@]}" "$@" >>"$log" 2>&1 </dev/null; }
 
     ( while kill -0 "$gs" 2>/dev/null; do svc mangoapp; sleep 1; done ) & pids+=($!)
