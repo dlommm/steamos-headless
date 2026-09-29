@@ -42,6 +42,44 @@ if [[ "$cg_mem" != "max" ]]; then
     log "WARNING: RAM is capped by cgroup at $((cg_mem / 1073741824)) GiB; remove mem_limit to use all memory"
 fi
 
+# Windows games (Proton) see GAME_CPU_THREADS threads, each on its own
+# physical core, like a Deck's 8. Many engines (Unity especially) start a
+# busy-waiting worker per thread they see; with dozens of threads, or two
+# workers on one core's SMT siblings, they starve the main thread and a game
+# runs at a fraction of its frame rate. Measured on a 64-thread EPYC, Ori:
+# all threads 12 fps, 16 cores 33 fps, 8 cores 66 fps, 4 cores/8 SMT
+# threads 8 fps. A WINE_CPU_TOPOLOGY given to the container, or in a game's
+# launch options, wins. GAME_CPU_THREADS=0 (or all) turns this off.
+game_threads=${GAME_CPU_THREADS:-8}
+[[ "$game_threads" == all ]] && game_threads=0
+if [[ ! "$game_threads" =~ ^[0-9]+$ ]]; then
+    log "WARNING: GAME_CPU_THREADS=$game_threads isn't a number; Windows games see every CPU thread"
+    game_threads=0
+fi
+if [[ -z "${WINE_CPU_TOPOLOGY:-}" ]] && (( game_threads > 0 && cpus > game_threads )); then
+    allowed=()
+    IFS=, read -ra ranges <<<"$(awk '/^Cpus_allowed_list/ {print $2}' /proc/self/status)"
+    for r in "${ranges[@]}"; do
+        if [[ "$r" == *-* ]]; then for ((c = ${r%-*}; c <= ${r#*-}; c++)); do allowed+=("$c"); done
+        else allowed+=("$r"); fi
+    done
+    declare -A core_seen=()
+    picked=()
+    for c in "${allowed[@]}"; do
+        t=/sys/devices/system/cpu/cpu$c/topology
+        key="$(cat "$t/physical_package_id" 2>/dev/null)-$(cat "$t/core_id" 2>/dev/null)"
+        [[ -n "${core_seen[$key]:-}" ]] && continue
+        core_seen[$key]=1
+        picked+=("$c")
+        (( ${#picked[@]} == game_threads )) && break
+    done
+    if (( ${#picked[@]} > 0 )); then
+        list=$(IFS=,; echo "${picked[*]}")
+        export WINE_CPU_TOPOLOGY="${#picked[@]}:$list"
+        log "Windows games see ${#picked[@]} CPU threads, one per core ($list); GAME_CPU_THREADS changes this"
+    fi
+fi
+
 # --- GPU -------------------------------------------------------------------
 # One image serves AMD and NVIDIA. Every GPU is listed at start and exactly one
 # is used; all others are hidden from this container. That keeps sway,
@@ -165,10 +203,11 @@ export GPU_VENDOR RENDER_NODE SUNSHINE_ENCODER
 
 # Plasma imports its environment from a login shell, where SteamOS's
 # /etc/profile.d/libva.sh sets the Deck's radeonsi. Put this GPU's driver
-# settings back after it (profile.d runs in name order).
+# settings back after it (profile.d runs in name order), along with the CPU
+# threads Windows games see.
 {
     echo "# Written at start by the entrypoint for the GPU this container uses."
-    for v in LIBVA_DRIVER_NAME NVD_BACKEND GBM_BACKEND __GLX_VENDOR_LIBRARY_NAME; do
+    for v in LIBVA_DRIVER_NAME NVD_BACKEND GBM_BACKEND __GLX_VENDOR_LIBRARY_NAME WINE_CPU_TOPOLOGY; do
         if [[ -n "${!v:-}" ]]; then echo "export $v=${!v}"; else echo "unset $v"; fi
     done
 } > /etc/profile.d/zz-steamos-headless-gpu.sh
