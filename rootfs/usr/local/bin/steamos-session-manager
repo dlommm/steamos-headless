@@ -89,7 +89,9 @@ EOF
     [[ -n "${WINE_CPU_TOPOLOGY:-}" ]] && envs+=("WINE_CPU_TOPOLOGY=$WINE_CPU_TOPOLOGY")
     svc() { env -i "${envs[@]}" "$@" >>"$log" 2>&1 </dev/null; }
 
-    ( while kill -0 "$gs" 2>/dev/null; do svc mangoapp; sleep 1; done ) & pids+=($!)
+    # (steam-mangoapp: mangoapp, restarted when the overlay level changes so
+    # NVIDIA stats show)
+    ( while kill -0 "$gs" 2>/dev/null; do svc /usr/local/bin/steam-mangoapp; sleep 1; done ) & pids+=($!)
     if command -v ibus-daemon >/dev/null; then
         svc ibus-daemon -r --panel=disable --emoji-extension=disable & pids+=($!)
         # Steam's runtime reaches IBus through its portal, which the session
@@ -170,8 +172,10 @@ run_plasma() {
         > "$prt/bin/kwin_wayland_wrapper"
     chmod 755 "$prt/bin/kwin_wayland_wrapper"
 
-    # The session bus address lets end_session log out cleanly.
+    # The session bus address lets end_session log out cleanly. Our XDG
+    # config dir comes first for Steam's autostart (no screen-sharing prompt).
     env -u LD_PRELOAD PATH="$prt/bin:$PATH" XDG_RUNTIME_DIR="$prt" \
+        XDG_CONFIG_DIRS="/usr/share/steamos-headless/xdg:${XDG_CONFIG_DIRS:-/etc/xdg}" \
         WAYLAND_DISPLAY="$rt/$WAYLAND_DISPLAY" XDG_SESSION_TYPE=wayland \
         dbus-run-session -- sh -c 'echo "$DBUS_SESSION_BUS_ADDRESS" > "$1"; exec startplasma-wayland' \
         sh "$state/plasma-bus" >>"$log" 2>&1 </dev/null

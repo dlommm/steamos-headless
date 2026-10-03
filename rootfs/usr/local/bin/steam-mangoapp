@@ -1,0 +1,28 @@
+#!/bin/bash
+# Steam's performance overlay (mangoapp) with full NVIDIA stats.
+# MangoHud up to 0.8.3 reads the NVIDIA values (temperature, clocks, power,
+# VRAM) only for the overlay fields enabled when mangoapp starts; Steam
+# sets the overlay level later, so they stay 0 (fixed upstream in 4e69793,
+# "nvidia: Update params in the infinite loop"). Restart mangoapp whenever
+# Steam changes the overlay config, so it starts with the current level.
+# When mangoapp exits on its own, so does this; the session manager starts
+# it again.
+cfg=${MANGOHUD_CONFIGFILE-}
+if [[ -z $cfg ]] || ! grep -q 0x10de /sys/class/drm/card*/device/vendor 2>/dev/null; then
+    exec /usr/bin/mangoapp "$@"
+fi
+stamp() { stat -c %y:%s "$cfg" 2>/dev/null; }
+trap 'kill "$pid" 2>/dev/null; exit 0' TERM INT
+while :; do
+    last=$(stamp)
+    /usr/bin/mangoapp "$@" &
+    pid=$!
+    while kill -0 "$pid" 2>/dev/null; do
+        sleep 1
+        [[ $(stamp) = "$last" ]] && continue
+        kill "$pid"; wait "$pid"
+        continue 2
+    done
+    wait "$pid"
+    exit $?
+done
