@@ -1,0 +1,7 @@
+#!/bin/bash
+# Steam's autostart in Desktop Mode (see /usr/share/steamos-headless/xdg).
+# Valve's /usr/bin/steam, minus -pipewire: with it Steam asks the screen-cast
+# portal for a capture at every Desktop Mode start, and Plasma shows a
+# "Screen Sharing" dialog. Sunshine does the streaming here. Should Valve's
+# script change, the edit just doesn't apply and Steam starts as stock.
+exec bash -c "$(sed 's/ -pipewire\b//' /usr/bin/steam)" steam "$@"

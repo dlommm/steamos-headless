@@ -22,7 +22,9 @@ Moonlight ──► Sunshine ──(wlr-screencopy)──► sway (headless outp
 - **Sunshine** captures sway's output (wlr-screencopy), encodes it on the GPU (NVENC or
   VA-API) and streams it to Moonlight. Input from Moonlight comes back as virtual devices
   (`uinput`), which sway and Steam see like real hardware.
-- **PipeWire** carries the audio, which Sunshine streams alongside the picture.
+- **PipeWire** carries the audio, which Sunshine streams alongside the picture. There's no
+  sound card, so a "Stream (Moonlight)" sink is always there as the default output; audio
+  moves to Sunshine's own sink when a client connects.
 
 ## What's in the image
 
@@ -82,6 +84,11 @@ On SteamOS, SDDM and systemd user units decide which session runs: Gaming Mode
 - Gaming Mode is run the way SteamOS's user units run it: Valve's `gamescope-session`, then
   Valve's `steam-launcher` (restarted whenever Steam exits while gamescope runs, with Valve's
   short-session tracker), plus `mangoapp`, `ibus` and Steam's notification daemon.
+  On NVIDIA, `mangoapp` restarts whenever Steam changes the performance overlay level:
+  MangoHud 0.8.3 only reads GPU temperature, clocks, power and VRAM for the fields enabled
+  when it starts, so otherwise they stay at 0.
+- In Desktop Mode, Steam starts without `-pipewire`, so Plasma doesn't ask to share the
+  screen every time. Sunshine does the streaming.
 - gamescope's panel flags (the Deck's 1280x800 screen) are replaced with the Moonlight
   client's resolution and refresh rate.
 - Steam's **Switch to Desktop** runs Valve's `holo-session-select`, which calls
