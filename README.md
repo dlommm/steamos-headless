@@ -1,4 +1,4 @@
-<p align="center"><img src="docs/logos/steamosheadless.png" alt="SteamOS-Headless" width="160"></p>
+<p align="center"><img src="assets/banner.png" alt="SteamOS-Headless: SteamOS, containerized" width="100%"></p>
 
 # SteamOS-Headless
 
